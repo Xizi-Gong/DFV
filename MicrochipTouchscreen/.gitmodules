@@ -1,0 +1,3 @@
+[submodule "3rdParty/yzLibrary"]
+	path = 3rdParty/yzLibrary
+	url = https://github.com/yizhongzhang1989/yzLibrary.git

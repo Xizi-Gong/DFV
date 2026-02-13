@@ -1,0 +1,6 @@
+D:/TBT/MicrochipTouchscreen/build/CMakeFiles/ALL_BUILD.dir
+D:/TBT/MicrochipTouchscreen/build/CMakeFiles/ZERO_CHECK.dir
+D:/TBT/MicrochipTouchscreen/build/src/ListHidDevices/CMakeFiles/ListHidDevices.dir
+D:/TBT/MicrochipTouchscreen/build/src/ListHidDevices/CMakeFiles/ALL_BUILD.dir
+D:/TBT/MicrochipTouchscreen/build/src/MicrochipTouchscreen/CMakeFiles/MicrochipTouchscreen.dir
+D:/TBT/MicrochipTouchscreen/build/src/MicrochipTouchscreen/CMakeFiles/ALL_BUILD.dir

@@ -1,0 +1,588 @@
+
+---
+events:
+  -
+    kind: "message-v1"
+    backtrace:
+      - "D:/GitHub/vcpkg/downloads/tools/cmake-3.30.1-windows/cmake-3.30.1-windows-i386/share/cmake-3.30/Modules/CMakeDetermineSystem.cmake:205 (message)"
+      - "CMakeLists.txt:4 (project)"
+    message: |
+      The system is: Windows - 10.0.19045 - AMD64
+  -
+    kind: "message-v1"
+    backtrace:
+      - "D:/GitHub/vcpkg/downloads/tools/cmake-3.30.1-windows/cmake-3.30.1-windows-i386/share/cmake-3.30/Modules/CMakeDetermineCompilerId.cmake:17 (message)"
+      - "D:/GitHub/vcpkg/downloads/tools/cmake-3.30.1-windows/cmake-3.30.1-windows-i386/share/cmake-3.30/Modules/CMakeDetermineCompilerId.cmake:64 (__determine_compiler_id_test)"
+      - "D:/GitHub/vcpkg/downloads/tools/cmake-3.30.1-windows/cmake-3.30.1-windows-i386/share/cmake-3.30/Modules/CMakeDetermineCCompiler.cmake:123 (CMAKE_DETERMINE_COMPILER_ID)"
+      - "CMakeLists.txt:4 (project)"
+    message: |
+      Compiling the C compiler identification source file "CMakeCCompilerId.c" succeeded.
+      Compiler:  
+      Build flags: 
+      Id flags:  
+      
+      The output was:
+      0
+      Microsoft (R) Build Engine version 16.11.6+a918ceb31 for .NET Framework
+      Copyright (C) Microsoft Corporation. All rights reserved.
+      
+      Build started 9/25/2025 12:30:37 AM.
+      Project "D:\\TBT\\MicrochipTouchscreen\\build\\CMakeFiles\\3.30.1\\CompilerIdC\\CompilerIdC.vcxproj" on node 1 (default targets).
+      PrepareForBuild:
+        Creating directory "Debug\\".
+        Creating directory "Debug\\CompilerIdC.tlog\\".
+      InitializeBuildStatus:
+        Creating "Debug\\CompilerIdC.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
+      ClCompile:
+        C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\Community\\VC\\Tools\\MSVC\\14.29.30133\\bin\\HostX64\\x64\\CL.exe /c /nologo /W0 /WX- /diagnostics:column /Od /D _MBCS /Gm- /EHsc /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /Fo"Debug\\\\" /Fd"Debug\\vc142.pdb" /external:W0 /Gd /TC /FC /errorReport:queue CMakeCCompilerId.c
+        CMakeCCompilerId.c
+      Link:
+        C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\Community\\VC\\Tools\\MSVC\\14.29.30133\\bin\\HostX64\\x64\\link.exe /ERRORREPORT:QUEUE /OUT:".\\CompilerIdC.exe" /INCREMENTAL:NO /NOLOGO kernel32.lib user32.lib gdi32.lib winspool.lib comdlg32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib odbc32.lib odbccp32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /PDB:".\\CompilerIdC.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /DYNAMICBASE /NXCOMPAT /IMPLIB:".\\CompilerIdC.lib" /MACHINE:X64 Debug\\CMakeCCompilerId.obj
+        CompilerIdC.vcxproj -> D:\\TBT\\MicrochipTouchscreen\\build\\CMakeFiles\\3.30.1\\CompilerIdC\\CompilerIdC.exe
+      PostBuildEvent:
+        for %%i in (cl.exe) do @echo CMAKE_C_COMPILER=%%~$PATH:i
+        :VCEnd
+        CMAKE_C_COMPILER=C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\Community\\VC\\Tools\\MSVC\\14.29.30133\\bin\\Hostx64\\x64\\cl.exe
+      FinalizeBuildStatus:
+        Deleting file "Debug\\CompilerIdC.tlog\\unsuccessfulbuild".
+        Touching "Debug\\CompilerIdC.tlog\\CompilerIdC.lastbuildstate".
+      Done Building Project "D:\\TBT\\MicrochipTouchscreen\\build\\CMakeFiles\\3.30.1\\CompilerIdC\\CompilerIdC.vcxproj" (default targets).
+      
+      Build succeeded.
+          0 Warning(s)
+          0 Error(s)
+      
+      Time Elapsed 00:00:01.02
+      
+      
+      Compilation of the C compiler identification source "CMakeCCompilerId.c" produced "CompilerIdC.exe"
+      
+      Compilation of the C compiler identification source "CMakeCCompilerId.c" produced "CompilerIdC.vcxproj"
+      
+      The C compiler identification is MSVC, found in:
+        D:/TBT/MicrochipTouchscreen/build/CMakeFiles/3.30.1/CompilerIdC/CompilerIdC.exe
+      
+  -
+    kind: "message-v1"
+    backtrace:
+      - "D:/GitHub/vcpkg/downloads/tools/cmake-3.30.1-windows/cmake-3.30.1-windows-i386/share/cmake-3.30/Modules/CMakeDetermineCompilerId.cmake:17 (message)"
+      - "D:/GitHub/vcpkg/downloads/tools/cmake-3.30.1-windows/cmake-3.30.1-windows-i386/share/cmake-3.30/Modules/CMakeDetermineCompilerId.cmake:64 (__determine_compiler_id_test)"
+      - "D:/GitHub/vcpkg/downloads/tools/cmake-3.30.1-windows/cmake-3.30.1-windows-i386/share/cmake-3.30/Modules/CMakeDetermineCXXCompiler.cmake:126 (CMAKE_DETERMINE_COMPILER_ID)"
+      - "CMakeLists.txt:4 (project)"
+    message: |
+      Compiling the CXX compiler identification source file "CMakeCXXCompilerId.cpp" succeeded.
+      Compiler:  
+      Build flags: 
+      Id flags:  
+      
+      The output was:
+      0
+      Microsoft (R) Build Engine version 16.11.6+a918ceb31 for .NET Framework
+      Copyright (C) Microsoft Corporation. All rights reserved.
+      
+      Build started 9/25/2025 12:30:38 AM.
+      Project "D:\\TBT\\MicrochipTouchscreen\\build\\CMakeFiles\\3.30.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj" on node 1 (default targets).
+      PrepareForBuild:
+        Creating directory "Debug\\".
+        Creating directory "Debug\\CompilerIdCXX.tlog\\".
+      InitializeBuildStatus:
+        Creating "Debug\\CompilerIdCXX.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
+      ClCompile:
+        C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\Community\\VC\\Tools\\MSVC\\14.29.30133\\bin\\HostX64\\x64\\CL.exe /c /nologo /W0 /WX- /diagnostics:column /Od /D _MBCS /Gm- /EHsc /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /Fo"Debug\\\\" /Fd"Debug\\vc142.pdb" /external:W0 /Gd /TP /FC /errorReport:queue CMakeCXXCompilerId.cpp
+        CMakeCXXCompilerId.cpp
+      Link:
+        C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\Community\\VC\\Tools\\MSVC\\14.29.30133\\bin\\HostX64\\x64\\link.exe /ERRORREPORT:QUEUE /OUT:".\\CompilerIdCXX.exe" /INCREMENTAL:NO /NOLOGO kernel32.lib user32.lib gdi32.lib winspool.lib comdlg32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib odbc32.lib odbccp32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /PDB:".\\CompilerIdCXX.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /DYNAMICBASE /NXCOMPAT /IMPLIB:".\\CompilerIdCXX.lib" /MACHINE:X64 Debug\\CMakeCXXCompilerId.obj
+        CompilerIdCXX.vcxproj -> D:\\TBT\\MicrochipTouchscreen\\build\\CMakeFiles\\3.30.1\\CompilerIdCXX\\CompilerIdCXX.exe
+      PostBuildEvent:
+        for %%i in (cl.exe) do @echo CMAKE_CXX_COMPILER=%%~$PATH:i
+        :VCEnd
+        CMAKE_CXX_COMPILER=C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\Community\\VC\\Tools\\MSVC\\14.29.30133\\bin\\Hostx64\\x64\\cl.exe
+      FinalizeBuildStatus:
+        Deleting file "Debug\\CompilerIdCXX.tlog\\unsuccessfulbuild".
+        Touching "Debug\\CompilerIdCXX.tlog\\CompilerIdCXX.lastbuildstate".
+      Done Building Project "D:\\TBT\\MicrochipTouchscreen\\build\\CMakeFiles\\3.30.1\\CompilerIdCXX\\CompilerIdCXX.vcxproj" (default targets).
+      
+      Build succeeded.
+          0 Warning(s)
+          0 Error(s)
+      
+      Time Elapsed 00:00:00.91
+      
+      
+      Compilation of the CXX compiler identification source "CMakeCXXCompilerId.cpp" produced "CompilerIdCXX.exe"
+      
+      Compilation of the CXX compiler identification source "CMakeCXXCompilerId.cpp" produced "CompilerIdCXX.vcxproj"
+      
+      The CXX compiler identification is MSVC, found in:
+        D:/TBT/MicrochipTouchscreen/build/CMakeFiles/3.30.1/CompilerIdCXX/CompilerIdCXX.exe
+      
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "D:/GitHub/vcpkg/downloads/tools/cmake-3.30.1-windows/cmake-3.30.1-windows-i386/share/cmake-3.30/Modules/CMakeDetermineCompilerABI.cmake:74 (try_compile)"
+      - "D:/GitHub/vcpkg/downloads/tools/cmake-3.30.1-windows/cmake-3.30.1-windows-i386/share/cmake-3.30/Modules/CMakeTestCCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:4 (project)"
+    checks:
+      - "Detecting C compiler ABI info"
+    directories:
+      source: "D:/TBT/MicrochipTouchscreen/build/CMakeFiles/CMakeScratch/TryCompile-5tbtvs"
+      binary: "D:/TBT/MicrochipTouchscreen/build/CMakeFiles/CMakeScratch/TryCompile-5tbtvs"
+    cmakeVariables:
+      CMAKE_C_FLAGS: "/DWIN32 /D_WINDOWS"
+      CMAKE_C_FLAGS_DEBUG: "/Ob0 /Od /RTC1"
+      CMAKE_EXE_LINKER_FLAGS: "/machine:x64"
+      VCPKG_APPLOCAL_DEPS: "ON"
+      VCPKG_TARGET_TRIPLET: "x64-windows"
+      Z_VCPKG_ROOT_DIR: "C:/Users/qiaochuwang/vcpkg"
+    buildResult:
+      variable: "CMAKE_C_ABI_COMPILED"
+      cached: true
+      stdout: |
+        Change Dir: 'D:/TBT/MicrochipTouchscreen/build/CMakeFiles/CMakeScratch/TryCompile-5tbtvs'
+        
+        Run Build Command(s): "C:/Program Files (x86)/Microsoft Visual Studio/2019/Community/MSBuild/Current/Bin/MSBuild.exe" cmTC_4befe.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=16.0 /v:n
+        Microsoft (R) Build Engine version 16.11.6+a918ceb31 for .NET Framework
+        Copyright (C) Microsoft Corporation. All rights reserved.
+        
+        Build started 9/25/2025 12:30:40 AM.
+        Project "D:\\TBT\\MicrochipTouchscreen\\build\\CMakeFiles\\CMakeScratch\\TryCompile-5tbtvs\\cmTC_4befe.vcxproj" on node 1 (default targets).
+        PrepareForBuild:
+          Creating directory "cmTC_4befe.dir\\Debug\\".
+          Creating directory "D:\\TBT\\MicrochipTouchscreen\\build\\CMakeFiles\\CMakeScratch\\TryCompile-5tbtvs\\Debug\\".
+          Creating directory "cmTC_4befe.dir\\Debug\\cmTC_4befe.tlog\\".
+        InitializeBuildStatus:
+          Creating "cmTC_4befe.dir\\Debug\\cmTC_4befe.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
+        ClCompile:
+          C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\Community\\VC\\Tools\\MSVC\\14.29.30133\\bin\\HostX64\\x64\\CL.exe /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /Fo"cmTC_4befe.dir\\Debug\\\\" /Fd"cmTC_4befe.dir\\Debug\\vc142.pdb" /external:W1 /Gd /TC /errorReport:queue "D:\\GitHub\\vcpkg\\downloads\\tools\\cmake-3.30.1-windows\\cmake-3.30.1-windows-i386\\share\\cmake-3.30\\Modules\\CMakeCCompilerABI.c"
+          Microsoft (R) C/C++ Optimizing Compiler Version 19.29.30159 for x64
+          Copyright (C) Microsoft Corporation.  All rights reserved.
+          CMakeCCompilerABI.c
+          cl /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /Fo"cmTC_4befe.dir\\Debug\\\\" /Fd"cmTC_4befe.dir\\Debug\\vc142.pdb" /external:W1 /Gd /TC /errorReport:queue "D:\\GitHub\\vcpkg\\downloads\\tools\\cmake-3.30.1-windows\\cmake-3.30.1-windows-i386\\share\\cmake-3.30\\Modules\\CMakeCCompilerABI.c"
+        Link:
+          C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\Community\\VC\\Tools\\MSVC\\14.29.30133\\bin\\HostX64\\x64\\link.exe /ERRORREPORT:QUEUE /OUT:"D:\\TBT\\MicrochipTouchscreen\\build\\CMakeFiles\\CMakeScratch\\TryCompile-5tbtvs\\Debug\\cmTC_4befe.exe" /INCREMENTAL /ILK:"cmTC_4befe.dir\\Debug\\cmTC_4befe.ilk" /NOLOGO kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"D:/TBT/MicrochipTouchscreen/build/CMakeFiles/CMakeScratch/TryCompile-5tbtvs/Debug/cmTC_4befe.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /DYNAMICBASE /NXCOMPAT /IMPLIB:"D:/TBT/MicrochipTouchscreen/build/CMakeFiles/CMakeScratch/TryCompile-5tbtvs/Debug/cmTC_4befe.lib" /MACHINE:X64  /machine:x64 cmTC_4befe.dir\\Debug\\CMakeCCompilerABI.obj
+          cmTC_4befe.vcxproj -> D:\\TBT\\MicrochipTouchscreen\\build\\CMakeFiles\\CMakeScratch\\TryCompile-5tbtvs\\Debug\\cmTC_4befe.exe
+        PostBuildEvent:
+          setlocal
+          "C:\\Program Files\\PowerShell\\7\\pwsh.exe" -noprofile -executionpolicy Bypass -file C:/Users/qiaochuwang/vcpkg/scripts/buildsystems/msbuild/applocal.ps1 -targetBinary D:/TBT/MicrochipTouchscreen/build/CMakeFiles/CMakeScratch/TryCompile-5tbtvs/Debug/cmTC_4befe.exe -installedDir C:/Users/qiaochuwang/vcpkg/installed/x64-windows/debug/bin -OutVariable out
+          if %errorlevel% neq 0 goto :cmEnd
+          :cmEnd
+          endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+          :cmErrorLevel
+          exit /b %1
+          :cmDone
+          if %errorlevel% neq 0 goto :VCEnd
+          :VCEnd
+        FinalizeBuildStatus:
+          Deleting file "cmTC_4befe.dir\\Debug\\cmTC_4befe.tlog\\unsuccessfulbuild".
+          Touching "cmTC_4befe.dir\\Debug\\cmTC_4befe.tlog\\cmTC_4befe.lastbuildstate".
+        Done Building Project "D:\\TBT\\MicrochipTouchscreen\\build\\CMakeFiles\\CMakeScratch\\TryCompile-5tbtvs\\cmTC_4befe.vcxproj" (default targets).
+        
+        Build succeeded.
+            0 Warning(s)
+            0 Error(s)
+        
+        Time Elapsed 00:00:01.42
+        
+      exitCode: 0
+  -
+    kind: "message-v1"
+    backtrace:
+      - "D:/GitHub/vcpkg/downloads/tools/cmake-3.30.1-windows/cmake-3.30.1-windows-i386/share/cmake-3.30/Modules/CMakeDetermineCompilerABI.cmake:218 (message)"
+      - "D:/GitHub/vcpkg/downloads/tools/cmake-3.30.1-windows/cmake-3.30.1-windows-i386/share/cmake-3.30/Modules/CMakeTestCCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:4 (project)"
+    message: |
+      Parsed C implicit link information:
+        link line regex: [^( *|.*[/\\])(ld[0-9]*(\\.[a-z]+)?|link\\.exe|lld-link(\\.exe)?|CMAKE_LINK_STARTFILE-NOTFOUND|([^/\\]+-)?ld|collect2)[^/\\]*( |$)]
+        linker tool regex: [^[ 	]*(->|")?[ 	]*(([^"]*[/\\])?(ld[0-9]*(\\.[a-z]+)?|link\\.exe|lld-link(\\.exe)?))("|,| |$)]
+        linker tool for 'C': C:/Program Files (x86)/Microsoft Visual Studio/2019/Community/VC/Tools/MSVC/14.29.30133/bin/HostX64/x64/link.exe
+        implicit libs: []
+        implicit objs: []
+        implicit dirs: []
+        implicit fwks: []
+      
+      
+  -
+    kind: "message-v1"
+    backtrace:
+      - "D:/GitHub/vcpkg/downloads/tools/cmake-3.30.1-windows/cmake-3.30.1-windows-i386/share/cmake-3.30/Modules/Internal/CMakeDetermineLinkerId.cmake:40 (message)"
+      - "D:/GitHub/vcpkg/downloads/tools/cmake-3.30.1-windows/cmake-3.30.1-windows-i386/share/cmake-3.30/Modules/CMakeDetermineCompilerABI.cmake:255 (cmake_determine_linker_id)"
+      - "D:/GitHub/vcpkg/downloads/tools/cmake-3.30.1-windows/cmake-3.30.1-windows-i386/share/cmake-3.30/Modules/CMakeTestCCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:4 (project)"
+    message: |
+      Running the C compiler's linker: "C:/Program Files (x86)/Microsoft Visual Studio/2019/Community/VC/Tools/MSVC/14.29.30133/bin/HostX64/x64/link.exe" "-v"
+      Microsoft (R) Incremental Linker Version 14.29.30159.0
+      Copyright (C) Microsoft Corporation.  All rights reserved.
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "D:/GitHub/vcpkg/downloads/tools/cmake-3.30.1-windows/cmake-3.30.1-windows-i386/share/cmake-3.30/Modules/CMakeDetermineCompilerABI.cmake:74 (try_compile)"
+      - "D:/GitHub/vcpkg/downloads/tools/cmake-3.30.1-windows/cmake-3.30.1-windows-i386/share/cmake-3.30/Modules/CMakeTestCXXCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:4 (project)"
+    checks:
+      - "Detecting CXX compiler ABI info"
+    directories:
+      source: "D:/TBT/MicrochipTouchscreen/build/CMakeFiles/CMakeScratch/TryCompile-7m44hq"
+      binary: "D:/TBT/MicrochipTouchscreen/build/CMakeFiles/CMakeScratch/TryCompile-7m44hq"
+    cmakeVariables:
+      CMAKE_CXX_FLAGS: "/DWIN32 /D_WINDOWS /EHsc"
+      CMAKE_CXX_FLAGS_DEBUG: "/Ob0 /Od /RTC1"
+      CMAKE_CXX_SCAN_FOR_MODULES: "OFF"
+      CMAKE_EXE_LINKER_FLAGS: "/machine:x64"
+      VCPKG_APPLOCAL_DEPS: "ON"
+      VCPKG_TARGET_TRIPLET: "x64-windows"
+      Z_VCPKG_ROOT_DIR: "C:/Users/qiaochuwang/vcpkg"
+    buildResult:
+      variable: "CMAKE_CXX_ABI_COMPILED"
+      cached: true
+      stdout: |
+        Change Dir: 'D:/TBT/MicrochipTouchscreen/build/CMakeFiles/CMakeScratch/TryCompile-7m44hq'
+        
+        Run Build Command(s): "C:/Program Files (x86)/Microsoft Visual Studio/2019/Community/MSBuild/Current/Bin/MSBuild.exe" cmTC_a0045.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=16.0 /v:n
+        Microsoft (R) Build Engine version 16.11.6+a918ceb31 for .NET Framework
+        Copyright (C) Microsoft Corporation. All rights reserved.
+        
+        Build started 9/25/2025 12:30:42 AM.
+        Project "D:\\TBT\\MicrochipTouchscreen\\build\\CMakeFiles\\CMakeScratch\\TryCompile-7m44hq\\cmTC_a0045.vcxproj" on node 1 (default targets).
+        PrepareForBuild:
+          Creating directory "cmTC_a0045.dir\\Debug\\".
+          Creating directory "D:\\TBT\\MicrochipTouchscreen\\build\\CMakeFiles\\CMakeScratch\\TryCompile-7m44hq\\Debug\\".
+          Creating directory "cmTC_a0045.dir\\Debug\\cmTC_a0045.tlog\\".
+        InitializeBuildStatus:
+          Creating "cmTC_a0045.dir\\Debug\\cmTC_a0045.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
+        ClCompile:
+          C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\Community\\VC\\Tools\\MSVC\\14.29.30133\\bin\\HostX64\\x64\\CL.exe /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D "CMAKE_INTDIR=\\"Debug\\"" /EHsc /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /Fo"cmTC_a0045.dir\\Debug\\\\" /Fd"cmTC_a0045.dir\\Debug\\vc142.pdb" /external:W1 /Gd /TP /errorReport:queue "D:\\GitHub\\vcpkg\\downloads\\tools\\cmake-3.30.1-windows\\cmake-3.30.1-windows-i386\\share\\cmake-3.30\\Modules\\CMakeCXXCompilerABI.cpp"
+          Microsoft (R) C/C++ Optimizing Compiler Version 19.29.30159 for x64
+          Copyright (C) Microsoft Corporation.  All rights reserved.
+          CMakeCXXCompilerABI.cpp
+          cl /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D "CMAKE_INTDIR=\\"Debug\\"" /EHsc /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /Fo"cmTC_a0045.dir\\Debug\\\\" /Fd"cmTC_a0045.dir\\Debug\\vc142.pdb" /external:W1 /Gd /TP /errorReport:queue "D:\\GitHub\\vcpkg\\downloads\\tools\\cmake-3.30.1-windows\\cmake-3.30.1-windows-i386\\share\\cmake-3.30\\Modules\\CMakeCXXCompilerABI.cpp"
+        Link:
+          C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\Community\\VC\\Tools\\MSVC\\14.29.30133\\bin\\HostX64\\x64\\link.exe /ERRORREPORT:QUEUE /OUT:"D:\\TBT\\MicrochipTouchscreen\\build\\CMakeFiles\\CMakeScratch\\TryCompile-7m44hq\\Debug\\cmTC_a0045.exe" /INCREMENTAL /ILK:"cmTC_a0045.dir\\Debug\\cmTC_a0045.ilk" /NOLOGO kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"D:/TBT/MicrochipTouchscreen/build/CMakeFiles/CMakeScratch/TryCompile-7m44hq/Debug/cmTC_a0045.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /DYNAMICBASE /NXCOMPAT /IMPLIB:"D:/TBT/MicrochipTouchscreen/build/CMakeFiles/CMakeScratch/TryCompile-7m44hq/Debug/cmTC_a0045.lib" /MACHINE:X64  /machine:x64 cmTC_a0045.dir\\Debug\\CMakeCXXCompilerABI.obj
+          cmTC_a0045.vcxproj -> D:\\TBT\\MicrochipTouchscreen\\build\\CMakeFiles\\CMakeScratch\\TryCompile-7m44hq\\Debug\\cmTC_a0045.exe
+        PostBuildEvent:
+          setlocal
+          "C:\\Program Files\\PowerShell\\7\\pwsh.exe" -noprofile -executionpolicy Bypass -file C:/Users/qiaochuwang/vcpkg/scripts/buildsystems/msbuild/applocal.ps1 -targetBinary D:/TBT/MicrochipTouchscreen/build/CMakeFiles/CMakeScratch/TryCompile-7m44hq/Debug/cmTC_a0045.exe -installedDir C:/Users/qiaochuwang/vcpkg/installed/x64-windows/debug/bin -OutVariable out
+          if %errorlevel% neq 0 goto :cmEnd
+          :cmEnd
+          endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+          :cmErrorLevel
+          exit /b %1
+          :cmDone
+          if %errorlevel% neq 0 goto :VCEnd
+          :VCEnd
+        FinalizeBuildStatus:
+          Deleting file "cmTC_a0045.dir\\Debug\\cmTC_a0045.tlog\\unsuccessfulbuild".
+          Touching "cmTC_a0045.dir\\Debug\\cmTC_a0045.tlog\\cmTC_a0045.lastbuildstate".
+        Done Building Project "D:\\TBT\\MicrochipTouchscreen\\build\\CMakeFiles\\CMakeScratch\\TryCompile-7m44hq\\cmTC_a0045.vcxproj" (default targets).
+        
+        Build succeeded.
+            0 Warning(s)
+            0 Error(s)
+        
+        Time Elapsed 00:00:01.48
+        
+      exitCode: 0
+  -
+    kind: "message-v1"
+    backtrace:
+      - "D:/GitHub/vcpkg/downloads/tools/cmake-3.30.1-windows/cmake-3.30.1-windows-i386/share/cmake-3.30/Modules/CMakeDetermineCompilerABI.cmake:218 (message)"
+      - "D:/GitHub/vcpkg/downloads/tools/cmake-3.30.1-windows/cmake-3.30.1-windows-i386/share/cmake-3.30/Modules/CMakeTestCXXCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:4 (project)"
+    message: |
+      Parsed CXX implicit link information:
+        link line regex: [^( *|.*[/\\])(ld[0-9]*(\\.[a-z]+)?|link\\.exe|lld-link(\\.exe)?|CMAKE_LINK_STARTFILE-NOTFOUND|([^/\\]+-)?ld|collect2)[^/\\]*( |$)]
+        linker tool regex: [^[ 	]*(->|")?[ 	]*(([^"]*[/\\])?(ld[0-9]*(\\.[a-z]+)?|link\\.exe|lld-link(\\.exe)?))("|,| |$)]
+        linker tool for 'CXX': C:/Program Files (x86)/Microsoft Visual Studio/2019/Community/VC/Tools/MSVC/14.29.30133/bin/HostX64/x64/link.exe
+        implicit libs: []
+        implicit objs: []
+        implicit dirs: []
+        implicit fwks: []
+      
+      
+  -
+    kind: "message-v1"
+    backtrace:
+      - "D:/GitHub/vcpkg/downloads/tools/cmake-3.30.1-windows/cmake-3.30.1-windows-i386/share/cmake-3.30/Modules/Internal/CMakeDetermineLinkerId.cmake:40 (message)"
+      - "D:/GitHub/vcpkg/downloads/tools/cmake-3.30.1-windows/cmake-3.30.1-windows-i386/share/cmake-3.30/Modules/CMakeDetermineCompilerABI.cmake:255 (cmake_determine_linker_id)"
+      - "D:/GitHub/vcpkg/downloads/tools/cmake-3.30.1-windows/cmake-3.30.1-windows-i386/share/cmake-3.30/Modules/CMakeTestCXXCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)"
+      - "CMakeLists.txt:4 (project)"
+    message: |
+      Running the CXX compiler's linker: "C:/Program Files (x86)/Microsoft Visual Studio/2019/Community/VC/Tools/MSVC/14.29.30133/bin/HostX64/x64/link.exe" "-v"
+      Microsoft (R) Incremental Linker Version 14.29.30159.0
+      Copyright (C) Microsoft Corporation.  All rights reserved.
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "D:/GitHub/vcpkg/downloads/tools/cmake-3.30.1-windows/cmake-3.30.1-windows-i386/share/cmake-3.30/Modules/FindOpenMP.cmake:238 (try_compile)"
+      - "D:/GitHub/vcpkg/downloads/tools/cmake-3.30.1-windows/cmake-3.30.1-windows-i386/share/cmake-3.30/Modules/FindOpenMP.cmake:506 (_OPENMP_GET_FLAGS)"
+      - "C:/Users/qiaochuwang/vcpkg/scripts/buildsystems/vcpkg.cmake:843 (_find_package)"
+      - "CMakeLists.txt:51 (find_package)"
+    description: "Detecting C OpenMP compiler info"
+    directories:
+      source: "D:/TBT/MicrochipTouchscreen/build/CMakeFiles/CMakeScratch/TryCompile-teh2tq"
+      binary: "D:/TBT/MicrochipTouchscreen/build/CMakeFiles/CMakeScratch/TryCompile-teh2tq"
+    cmakeVariables:
+      CMAKE_C_FLAGS: "/DWIN32 /D_WINDOWS"
+      CMAKE_C_FLAGS_DEBUG: "/Ob0 /Od /RTC1"
+      CMAKE_EXE_LINKER_FLAGS: "/machine:x64"
+      CMAKE_MODULE_PATH: "D:/TBT/MicrochipTouchscreen/cmake"
+      VCPKG_APPLOCAL_DEPS: "ON"
+      VCPKG_TARGET_TRIPLET: "x64-windows"
+      Z_VCPKG_ROOT_DIR: "C:/Users/qiaochuwang/vcpkg"
+    buildResult:
+      variable: "OpenMP_COMPILE_RESULT_C_openmp"
+      cached: true
+      stdout: |
+        Change Dir: 'D:/TBT/MicrochipTouchscreen/build/CMakeFiles/CMakeScratch/TryCompile-teh2tq'
+        
+        Run Build Command(s): "C:/Program Files (x86)/Microsoft Visual Studio/2019/Community/MSBuild/Current/Bin/MSBuild.exe" cmTC_f7346.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=16.0 /v:n
+        Microsoft (R) Build Engine version 16.11.6+a918ceb31 for .NET Framework
+        Copyright (C) Microsoft Corporation. All rights reserved.
+        
+        Build started 9/25/2025 12:30:45 AM.
+        Project "D:\\TBT\\MicrochipTouchscreen\\build\\CMakeFiles\\CMakeScratch\\TryCompile-teh2tq\\cmTC_f7346.vcxproj" on node 1 (default targets).
+        PrepareForBuild:
+          Creating directory "cmTC_f7346.dir\\Debug\\".
+          Creating directory "D:\\TBT\\MicrochipTouchscreen\\build\\CMakeFiles\\CMakeScratch\\TryCompile-teh2tq\\Debug\\".
+          Creating directory "cmTC_f7346.dir\\Debug\\cmTC_f7346.tlog\\".
+        InitializeBuildStatus:
+          Creating "cmTC_f7346.dir\\Debug\\cmTC_f7346.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
+        ClCompile:
+          C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\Community\\VC\\Tools\\MSVC\\14.29.30133\\bin\\HostX64\\x64\\CL.exe /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /openmp /Fo"cmTC_f7346.dir\\Debug\\\\" /Fd"cmTC_f7346.dir\\Debug\\vc142.pdb" /external:W1 /Gd /TC /errorReport:queue "D:\\TBT\\MicrochipTouchscreen\\build\\CMakeFiles\\CMakeScratch\\TryCompile-teh2tq\\OpenMPTryFlag.c"
+          Microsoft (R) C/C++ Optimizing Compiler Version 19.29.30159 for x64
+          Copyright (C) Microsoft Corporation.  All rights reserved.
+          OpenMPTryFlag.c
+          cl /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /openmp /Fo"cmTC_f7346.dir\\Debug\\\\" /Fd"cmTC_f7346.dir\\Debug\\vc142.pdb" /external:W1 /Gd /TC /errorReport:queue "D:\\TBT\\MicrochipTouchscreen\\build\\CMakeFiles\\CMakeScratch\\TryCompile-teh2tq\\OpenMPTryFlag.c"
+        Link:
+          C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\Community\\VC\\Tools\\MSVC\\14.29.30133\\bin\\HostX64\\x64\\link.exe /ERRORREPORT:QUEUE /OUT:"D:\\TBT\\MicrochipTouchscreen\\build\\CMakeFiles\\CMakeScratch\\TryCompile-teh2tq\\Debug\\cmTC_f7346.exe" /INCREMENTAL /ILK:"cmTC_f7346.dir\\Debug\\cmTC_f7346.ilk" /NOLOGO kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"D:/TBT/MicrochipTouchscreen/build/CMakeFiles/CMakeScratch/TryCompile-teh2tq/Debug/cmTC_f7346.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /DYNAMICBASE /NXCOMPAT /IMPLIB:"D:/TBT/MicrochipTouchscreen/build/CMakeFiles/CMakeScratch/TryCompile-teh2tq/Debug/cmTC_f7346.lib" /MACHINE:X64  /machine:x64 cmTC_f7346.dir\\Debug\\OpenMPTryFlag.obj
+          cmTC_f7346.vcxproj -> D:\\TBT\\MicrochipTouchscreen\\build\\CMakeFiles\\CMakeScratch\\TryCompile-teh2tq\\Debug\\cmTC_f7346.exe
+        PostBuildEvent:
+          setlocal
+          "C:\\Program Files\\PowerShell\\7\\pwsh.exe" -noprofile -executionpolicy Bypass -file C:/Users/qiaochuwang/vcpkg/scripts/buildsystems/msbuild/applocal.ps1 -targetBinary D:/TBT/MicrochipTouchscreen/build/CMakeFiles/CMakeScratch/TryCompile-teh2tq/Debug/cmTC_f7346.exe -installedDir C:/Users/qiaochuwang/vcpkg/installed/x64-windows/debug/bin -OutVariable out
+          if %errorlevel% neq 0 goto :cmEnd
+          :cmEnd
+          endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+          :cmErrorLevel
+          exit /b %1
+          :cmDone
+          if %errorlevel% neq 0 goto :VCEnd
+          :VCEnd
+        FinalizeBuildStatus:
+          Deleting file "cmTC_f7346.dir\\Debug\\cmTC_f7346.tlog\\unsuccessfulbuild".
+          Touching "cmTC_f7346.dir\\Debug\\cmTC_f7346.tlog\\cmTC_f7346.lastbuildstate".
+        Done Building Project "D:\\TBT\\MicrochipTouchscreen\\build\\CMakeFiles\\CMakeScratch\\TryCompile-teh2tq\\cmTC_f7346.vcxproj" (default targets).
+        
+        Build succeeded.
+            0 Warning(s)
+            0 Error(s)
+        
+        Time Elapsed 00:00:01.41
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "D:/GitHub/vcpkg/downloads/tools/cmake-3.30.1-windows/cmake-3.30.1-windows-i386/share/cmake-3.30/Modules/FindOpenMP.cmake:238 (try_compile)"
+      - "D:/GitHub/vcpkg/downloads/tools/cmake-3.30.1-windows/cmake-3.30.1-windows-i386/share/cmake-3.30/Modules/FindOpenMP.cmake:506 (_OPENMP_GET_FLAGS)"
+      - "C:/Users/qiaochuwang/vcpkg/scripts/buildsystems/vcpkg.cmake:843 (_find_package)"
+      - "CMakeLists.txt:51 (find_package)"
+    description: "Detecting CXX OpenMP compiler info"
+    directories:
+      source: "D:/TBT/MicrochipTouchscreen/build/CMakeFiles/CMakeScratch/TryCompile-ficb9m"
+      binary: "D:/TBT/MicrochipTouchscreen/build/CMakeFiles/CMakeScratch/TryCompile-ficb9m"
+    cmakeVariables:
+      CMAKE_CXX_FLAGS: "/DWIN32 /D_WINDOWS /EHsc"
+      CMAKE_CXX_FLAGS_DEBUG: "/Ob0 /Od /RTC1"
+      CMAKE_EXE_LINKER_FLAGS: "/machine:x64"
+      CMAKE_MODULE_PATH: "D:/TBT/MicrochipTouchscreen/cmake"
+      VCPKG_APPLOCAL_DEPS: "ON"
+      VCPKG_TARGET_TRIPLET: "x64-windows"
+      Z_VCPKG_ROOT_DIR: "C:/Users/qiaochuwang/vcpkg"
+    buildResult:
+      variable: "OpenMP_COMPILE_RESULT_CXX_openmp"
+      cached: true
+      stdout: |
+        Change Dir: 'D:/TBT/MicrochipTouchscreen/build/CMakeFiles/CMakeScratch/TryCompile-ficb9m'
+        
+        Run Build Command(s): "C:/Program Files (x86)/Microsoft Visual Studio/2019/Community/MSBuild/Current/Bin/MSBuild.exe" cmTC_bf179.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=16.0 /v:n
+        Microsoft (R) Build Engine version 16.11.6+a918ceb31 for .NET Framework
+        Copyright (C) Microsoft Corporation. All rights reserved.
+        
+        Build started 9/25/2025 12:30:46 AM.
+        Project "D:\\TBT\\MicrochipTouchscreen\\build\\CMakeFiles\\CMakeScratch\\TryCompile-ficb9m\\cmTC_bf179.vcxproj" on node 1 (default targets).
+        PrepareForBuild:
+          Creating directory "cmTC_bf179.dir\\Debug\\".
+          Creating directory "D:\\TBT\\MicrochipTouchscreen\\build\\CMakeFiles\\CMakeScratch\\TryCompile-ficb9m\\Debug\\".
+          Creating directory "cmTC_bf179.dir\\Debug\\cmTC_bf179.tlog\\".
+        InitializeBuildStatus:
+          Creating "cmTC_bf179.dir\\Debug\\cmTC_bf179.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
+        ClCompile:
+          C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\Community\\VC\\Tools\\MSVC\\14.29.30133\\bin\\HostX64\\x64\\CL.exe /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D "CMAKE_INTDIR=\\"Debug\\"" /EHsc /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /openmp /Fo"cmTC_bf179.dir\\Debug\\\\" /Fd"cmTC_bf179.dir\\Debug\\vc142.pdb" /external:W1 /Gd /TP /errorReport:queue "D:\\TBT\\MicrochipTouchscreen\\build\\CMakeFiles\\CMakeScratch\\TryCompile-ficb9m\\OpenMPTryFlag.cpp"
+          Microsoft (R) C/C++ Optimizing Compiler Version 19.29.30159 for x64
+          Copyright (C) Microsoft Corporation.  All rights reserved.
+          OpenMPTryFlag.cpp
+          cl /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D "CMAKE_INTDIR=\\"Debug\\"" /EHsc /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /openmp /Fo"cmTC_bf179.dir\\Debug\\\\" /Fd"cmTC_bf179.dir\\Debug\\vc142.pdb" /external:W1 /Gd /TP /errorReport:queue "D:\\TBT\\MicrochipTouchscreen\\build\\CMakeFiles\\CMakeScratch\\TryCompile-ficb9m\\OpenMPTryFlag.cpp"
+        Link:
+          C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\Community\\VC\\Tools\\MSVC\\14.29.30133\\bin\\HostX64\\x64\\link.exe /ERRORREPORT:QUEUE /OUT:"D:\\TBT\\MicrochipTouchscreen\\build\\CMakeFiles\\CMakeScratch\\TryCompile-ficb9m\\Debug\\cmTC_bf179.exe" /INCREMENTAL /ILK:"cmTC_bf179.dir\\Debug\\cmTC_bf179.ilk" /NOLOGO kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"D:/TBT/MicrochipTouchscreen/build/CMakeFiles/CMakeScratch/TryCompile-ficb9m/Debug/cmTC_bf179.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /DYNAMICBASE /NXCOMPAT /IMPLIB:"D:/TBT/MicrochipTouchscreen/build/CMakeFiles/CMakeScratch/TryCompile-ficb9m/Debug/cmTC_bf179.lib" /MACHINE:X64  /machine:x64 cmTC_bf179.dir\\Debug\\OpenMPTryFlag.obj
+          cmTC_bf179.vcxproj -> D:\\TBT\\MicrochipTouchscreen\\build\\CMakeFiles\\CMakeScratch\\TryCompile-ficb9m\\Debug\\cmTC_bf179.exe
+        PostBuildEvent:
+          setlocal
+          "C:\\Program Files\\PowerShell\\7\\pwsh.exe" -noprofile -executionpolicy Bypass -file C:/Users/qiaochuwang/vcpkg/scripts/buildsystems/msbuild/applocal.ps1 -targetBinary D:/TBT/MicrochipTouchscreen/build/CMakeFiles/CMakeScratch/TryCompile-ficb9m/Debug/cmTC_bf179.exe -installedDir C:/Users/qiaochuwang/vcpkg/installed/x64-windows/debug/bin -OutVariable out
+          if %errorlevel% neq 0 goto :cmEnd
+          :cmEnd
+          endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+          :cmErrorLevel
+          exit /b %1
+          :cmDone
+          if %errorlevel% neq 0 goto :VCEnd
+          :VCEnd
+        FinalizeBuildStatus:
+          Deleting file "cmTC_bf179.dir\\Debug\\cmTC_bf179.tlog\\unsuccessfulbuild".
+          Touching "cmTC_bf179.dir\\Debug\\cmTC_bf179.tlog\\cmTC_bf179.lastbuildstate".
+        Done Building Project "D:\\TBT\\MicrochipTouchscreen\\build\\CMakeFiles\\CMakeScratch\\TryCompile-ficb9m\\cmTC_bf179.vcxproj" (default targets).
+        
+        Build succeeded.
+            0 Warning(s)
+            0 Error(s)
+        
+        Time Elapsed 00:00:01.42
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "D:/GitHub/vcpkg/downloads/tools/cmake-3.30.1-windows/cmake-3.30.1-windows-i386/share/cmake-3.30/Modules/FindOpenMP.cmake:440 (try_compile)"
+      - "D:/GitHub/vcpkg/downloads/tools/cmake-3.30.1-windows/cmake-3.30.1-windows-i386/share/cmake-3.30/Modules/FindOpenMP.cmake:580 (_OPENMP_GET_SPEC_DATE)"
+      - "C:/Users/qiaochuwang/vcpkg/scripts/buildsystems/vcpkg.cmake:843 (_find_package)"
+      - "CMakeLists.txt:51 (find_package)"
+    description: "Detecting C OpenMP version"
+    directories:
+      source: "D:/TBT/MicrochipTouchscreen/build/CMakeFiles/CMakeScratch/TryCompile-q99096"
+      binary: "D:/TBT/MicrochipTouchscreen/build/CMakeFiles/CMakeScratch/TryCompile-q99096"
+    cmakeVariables:
+      CMAKE_C_FLAGS: "/DWIN32 /D_WINDOWS"
+      CMAKE_C_FLAGS_DEBUG: "/Ob0 /Od /RTC1"
+      CMAKE_EXE_LINKER_FLAGS: "/machine:x64"
+      CMAKE_MODULE_PATH: "D:/TBT/MicrochipTouchscreen/cmake"
+      VCPKG_APPLOCAL_DEPS: "ON"
+      VCPKG_TARGET_TRIPLET: "x64-windows"
+      Z_VCPKG_ROOT_DIR: "C:/Users/qiaochuwang/vcpkg"
+    buildResult:
+      variable: "OpenMP_SPECTEST_C_"
+      cached: true
+      stdout: |
+        Change Dir: 'D:/TBT/MicrochipTouchscreen/build/CMakeFiles/CMakeScratch/TryCompile-q99096'
+        
+        Run Build Command(s): "C:/Program Files (x86)/Microsoft Visual Studio/2019/Community/MSBuild/Current/Bin/MSBuild.exe" cmTC_70505.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=16.0 /v:n
+        Microsoft (R) Build Engine version 16.11.6+a918ceb31 for .NET Framework
+        Copyright (C) Microsoft Corporation. All rights reserved.
+        
+        Build started 9/25/2025 12:30:48 AM.
+        Project "D:\\TBT\\MicrochipTouchscreen\\build\\CMakeFiles\\CMakeScratch\\TryCompile-q99096\\cmTC_70505.vcxproj" on node 1 (default targets).
+        PrepareForBuild:
+          Creating directory "cmTC_70505.dir\\Debug\\".
+          Creating directory "D:\\TBT\\MicrochipTouchscreen\\build\\CMakeFiles\\CMakeScratch\\TryCompile-q99096\\Debug\\".
+          Creating directory "cmTC_70505.dir\\Debug\\cmTC_70505.tlog\\".
+        InitializeBuildStatus:
+          Creating "cmTC_70505.dir\\Debug\\cmTC_70505.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
+        ClCompile:
+          C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\Community\\VC\\Tools\\MSVC\\14.29.30133\\bin\\HostX64\\x64\\CL.exe /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /openmp /Fo"cmTC_70505.dir\\Debug\\\\" /Fd"cmTC_70505.dir\\Debug\\vc142.pdb" /external:W1 /Gd /TC /errorReport:queue "D:\\TBT\\MicrochipTouchscreen\\build\\CMakeFiles\\CMakeScratch\\TryCompile-q99096\\OpenMPCheckVersion.c"
+          Microsoft (R) C/C++ Optimizing Compiler Version 19.29.30159 for x64
+          Copyright (C) Microsoft Corporation.  All rights reserved.
+          OpenMPCheckVersion.c
+          cl /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /openmp /Fo"cmTC_70505.dir\\Debug\\\\" /Fd"cmTC_70505.dir\\Debug\\vc142.pdb" /external:W1 /Gd /TC /errorReport:queue "D:\\TBT\\MicrochipTouchscreen\\build\\CMakeFiles\\CMakeScratch\\TryCompile-q99096\\OpenMPCheckVersion.c"
+        Link:
+          C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\Community\\VC\\Tools\\MSVC\\14.29.30133\\bin\\HostX64\\x64\\link.exe /ERRORREPORT:QUEUE /OUT:"D:\\TBT\\MicrochipTouchscreen\\build\\CMakeFiles\\CMakeScratch\\TryCompile-q99096\\Debug\\cmTC_70505.exe" /INCREMENTAL /ILK:"cmTC_70505.dir\\Debug\\cmTC_70505.ilk" /NOLOGO kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"D:/TBT/MicrochipTouchscreen/build/CMakeFiles/CMakeScratch/TryCompile-q99096/Debug/cmTC_70505.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /DYNAMICBASE /NXCOMPAT /IMPLIB:"D:/TBT/MicrochipTouchscreen/build/CMakeFiles/CMakeScratch/TryCompile-q99096/Debug/cmTC_70505.lib" /MACHINE:X64  /machine:x64 cmTC_70505.dir\\Debug\\OpenMPCheckVersion.obj
+          cmTC_70505.vcxproj -> D:\\TBT\\MicrochipTouchscreen\\build\\CMakeFiles\\CMakeScratch\\TryCompile-q99096\\Debug\\cmTC_70505.exe
+        PostBuildEvent:
+          setlocal
+          "C:\\Program Files\\PowerShell\\7\\pwsh.exe" -noprofile -executionpolicy Bypass -file C:/Users/qiaochuwang/vcpkg/scripts/buildsystems/msbuild/applocal.ps1 -targetBinary D:/TBT/MicrochipTouchscreen/build/CMakeFiles/CMakeScratch/TryCompile-q99096/Debug/cmTC_70505.exe -installedDir C:/Users/qiaochuwang/vcpkg/installed/x64-windows/debug/bin -OutVariable out
+          if %errorlevel% neq 0 goto :cmEnd
+          :cmEnd
+          endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+          :cmErrorLevel
+          exit /b %1
+          :cmDone
+          if %errorlevel% neq 0 goto :VCEnd
+          :VCEnd
+        FinalizeBuildStatus:
+          Deleting file "cmTC_70505.dir\\Debug\\cmTC_70505.tlog\\unsuccessfulbuild".
+          Touching "cmTC_70505.dir\\Debug\\cmTC_70505.tlog\\cmTC_70505.lastbuildstate".
+        Done Building Project "D:\\TBT\\MicrochipTouchscreen\\build\\CMakeFiles\\CMakeScratch\\TryCompile-q99096\\cmTC_70505.vcxproj" (default targets).
+        
+        Build succeeded.
+            0 Warning(s)
+            0 Error(s)
+        
+        Time Elapsed 00:00:01.42
+        
+      exitCode: 0
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "D:/GitHub/vcpkg/downloads/tools/cmake-3.30.1-windows/cmake-3.30.1-windows-i386/share/cmake-3.30/Modules/FindOpenMP.cmake:440 (try_compile)"
+      - "D:/GitHub/vcpkg/downloads/tools/cmake-3.30.1-windows/cmake-3.30.1-windows-i386/share/cmake-3.30/Modules/FindOpenMP.cmake:580 (_OPENMP_GET_SPEC_DATE)"
+      - "C:/Users/qiaochuwang/vcpkg/scripts/buildsystems/vcpkg.cmake:843 (_find_package)"
+      - "CMakeLists.txt:51 (find_package)"
+    description: "Detecting CXX OpenMP version"
+    directories:
+      source: "D:/TBT/MicrochipTouchscreen/build/CMakeFiles/CMakeScratch/TryCompile-4pug81"
+      binary: "D:/TBT/MicrochipTouchscreen/build/CMakeFiles/CMakeScratch/TryCompile-4pug81"
+    cmakeVariables:
+      CMAKE_CXX_FLAGS: "/DWIN32 /D_WINDOWS /EHsc"
+      CMAKE_CXX_FLAGS_DEBUG: "/Ob0 /Od /RTC1"
+      CMAKE_EXE_LINKER_FLAGS: "/machine:x64"
+      CMAKE_MODULE_PATH: "D:/TBT/MicrochipTouchscreen/cmake"
+      VCPKG_APPLOCAL_DEPS: "ON"
+      VCPKG_TARGET_TRIPLET: "x64-windows"
+      Z_VCPKG_ROOT_DIR: "C:/Users/qiaochuwang/vcpkg"
+    buildResult:
+      variable: "OpenMP_SPECTEST_CXX_"
+      cached: true
+      stdout: |
+        Change Dir: 'D:/TBT/MicrochipTouchscreen/build/CMakeFiles/CMakeScratch/TryCompile-4pug81'
+        
+        Run Build Command(s): "C:/Program Files (x86)/Microsoft Visual Studio/2019/Community/MSBuild/Current/Bin/MSBuild.exe" cmTC_6ef6c.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=16.0 /v:n
+        Microsoft (R) Build Engine version 16.11.6+a918ceb31 for .NET Framework
+        Copyright (C) Microsoft Corporation. All rights reserved.
+        
+        Build started 9/25/2025 12:30:50 AM.
+        Project "D:\\TBT\\MicrochipTouchscreen\\build\\CMakeFiles\\CMakeScratch\\TryCompile-4pug81\\cmTC_6ef6c.vcxproj" on node 1 (default targets).
+        PrepareForBuild:
+          Creating directory "cmTC_6ef6c.dir\\Debug\\".
+          Creating directory "D:\\TBT\\MicrochipTouchscreen\\build\\CMakeFiles\\CMakeScratch\\TryCompile-4pug81\\Debug\\".
+          Creating directory "cmTC_6ef6c.dir\\Debug\\cmTC_6ef6c.tlog\\".
+        InitializeBuildStatus:
+          Creating "cmTC_6ef6c.dir\\Debug\\cmTC_6ef6c.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
+        ClCompile:
+          C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\Community\\VC\\Tools\\MSVC\\14.29.30133\\bin\\HostX64\\x64\\CL.exe /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D "CMAKE_INTDIR=\\"Debug\\"" /EHsc /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /openmp /Fo"cmTC_6ef6c.dir\\Debug\\\\" /Fd"cmTC_6ef6c.dir\\Debug\\vc142.pdb" /external:W1 /Gd /TP /errorReport:queue "D:\\TBT\\MicrochipTouchscreen\\build\\CMakeFiles\\CMakeScratch\\TryCompile-4pug81\\OpenMPCheckVersion.cpp"
+          Microsoft (R) C/C++ Optimizing Compiler Version 19.29.30159 for x64
+          Copyright (C) Microsoft Corporation.  All rights reserved.
+          OpenMPCheckVersion.cpp
+          cl /c /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D "CMAKE_INTDIR=\\"Debug\\"" /EHsc /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /openmp /Fo"cmTC_6ef6c.dir\\Debug\\\\" /Fd"cmTC_6ef6c.dir\\Debug\\vc142.pdb" /external:W1 /Gd /TP /errorReport:queue "D:\\TBT\\MicrochipTouchscreen\\build\\CMakeFiles\\CMakeScratch\\TryCompile-4pug81\\OpenMPCheckVersion.cpp"
+        Link:
+          C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\Community\\VC\\Tools\\MSVC\\14.29.30133\\bin\\HostX64\\x64\\link.exe /ERRORREPORT:QUEUE /OUT:"D:\\TBT\\MicrochipTouchscreen\\build\\CMakeFiles\\CMakeScratch\\TryCompile-4pug81\\Debug\\cmTC_6ef6c.exe" /INCREMENTAL /ILK:"cmTC_6ef6c.dir\\Debug\\cmTC_6ef6c.ilk" /NOLOGO kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"D:/TBT/MicrochipTouchscreen/build/CMakeFiles/CMakeScratch/TryCompile-4pug81/Debug/cmTC_6ef6c.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /DYNAMICBASE /NXCOMPAT /IMPLIB:"D:/TBT/MicrochipTouchscreen/build/CMakeFiles/CMakeScratch/TryCompile-4pug81/Debug/cmTC_6ef6c.lib" /MACHINE:X64  /machine:x64 cmTC_6ef6c.dir\\Debug\\OpenMPCheckVersion.obj
+          cmTC_6ef6c.vcxproj -> D:\\TBT\\MicrochipTouchscreen\\build\\CMakeFiles\\CMakeScratch\\TryCompile-4pug81\\Debug\\cmTC_6ef6c.exe
+        PostBuildEvent:
+          setlocal
+          "C:\\Program Files\\PowerShell\\7\\pwsh.exe" -noprofile -executionpolicy Bypass -file C:/Users/qiaochuwang/vcpkg/scripts/buildsystems/msbuild/applocal.ps1 -targetBinary D:/TBT/MicrochipTouchscreen/build/CMakeFiles/CMakeScratch/TryCompile-4pug81/Debug/cmTC_6ef6c.exe -installedDir C:/Users/qiaochuwang/vcpkg/installed/x64-windows/debug/bin -OutVariable out
+          if %errorlevel% neq 0 goto :cmEnd
+          :cmEnd
+          endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+          :cmErrorLevel
+          exit /b %1
+          :cmDone
+          if %errorlevel% neq 0 goto :VCEnd
+          :VCEnd
+        FinalizeBuildStatus:
+          Deleting file "cmTC_6ef6c.dir\\Debug\\cmTC_6ef6c.tlog\\unsuccessfulbuild".
+          Touching "cmTC_6ef6c.dir\\Debug\\cmTC_6ef6c.tlog\\cmTC_6ef6c.lastbuildstate".
+        Done Building Project "D:\\TBT\\MicrochipTouchscreen\\build\\CMakeFiles\\CMakeScratch\\TryCompile-4pug81\\cmTC_6ef6c.vcxproj" (default targets).
+        
+        Build succeeded.
+            0 Warning(s)
+            0 Error(s)
+        
+        Time Elapsed 00:00:01.48
+        
+      exitCode: 0
+...

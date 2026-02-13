@@ -1,0 +1,3 @@
+﻿  MicrochipTouchscreen.cpp
+D:\TBT\MicrochipTouchscreen\.\src\common\MaxTouch.h(506,34): warning C4114: same type qualifier used more than once
+  MicrochipTouchscreen.vcxproj -> D:\TBT\MicrochipTouchscreen\bin\Release\MicrochipTouchscreen.exe

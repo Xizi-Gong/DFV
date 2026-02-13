@@ -1,0 +1,15 @@
+/build
+/lib
+/doc
+/script/.*
+.vs/*
+CMakeSettings.json
+out/*
+.vs
+out/
+CMakeSettings.json
+/src/common/resource.h
+/python/.idea
+/python/ipc/__pycache__/*.pyc
+**/__pycache__
+**.pth

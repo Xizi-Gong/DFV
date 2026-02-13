@@ -1,0 +1,10 @@
+^D:\TBT\MICROCHIPTOUCHSCREEN\BUILD\CMAKEFILES\3E7D4BAEB9B9AEB3A36CA917A2A022B5\GENERATE.STAMP.RULE
+setlocal
+D:\GitHub\vcpkg\downloads\tools\cmake-3.30.1-windows\cmake-3.30.1-windows-i386\bin\cmake.exe -SD:/TBT/MicrochipTouchscreen -BD:/TBT/MicrochipTouchscreen/build --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file D:/TBT/MicrochipTouchscreen/build/Touchscreen.sln
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
