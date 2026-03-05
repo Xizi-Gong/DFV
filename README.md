@@ -1,9 +1,5 @@
 # DFV
-## Fluid
-### Fluid simulation
-```
-python main.py
-```
+## Prerequisite
 ### Requirements
 ```
 pip install taichi
@@ -17,3 +13,13 @@ pip install opencv-python
 ### Stream touch board data to simulation
 
 run MicrochipTouchscreen\bin\Release\MicrochipTouchscreen.exe
+
+### Fluid simulation
+```
+python fluid_simulation.py
+```
+
+### Magnetic simulation
+```
+python magnetic_simulation.py
+```
