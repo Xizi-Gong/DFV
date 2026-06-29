@@ -3,6 +3,10 @@ Heat Diffusion — WebSocket 帧流（WebGL 版）
 - 不再编码 JPEG，改为发送裸 float32 温度数组 + 粒子线段
 - 浏览器用 WebGL fragment shader 完成着色，GPU 双线性插值
 - 帧尺寸: 8B header + 78×52×4B temp + n_segs×20B particles ≈ 16~26 KB
+
+等温线平滑：热源幅值改为「全局压感标量」统一给定，processed_input>0 仅作
+            手形掩膜（定位置），不再用逐格电容值调制幅值（消除逐像素噪声
+            导致的散点/毛糙等温线）。
 """
 
 import taichi as ti
@@ -28,9 +32,19 @@ freeze_input = False
 show_gradient_lines = False
 
 # ── 长按冻结配置 ──
-LONGPRESS_DURATION  = 1.5          # 按住多少秒触发冻结
+LONGPRESS_DURATION  = 5          # 按住多少秒触发冻结
 longpress_start     = None         # 当前按压开始时间
 freeze_progress     = 0.0          # 冻结进度 0.0-1.0
+
+# ── 压感门控：区分「持续加热」与「触发观察」──
+# 归一化压感 = 接触区深度的 90 分位 / input_threshold，范围 0~1
+#   原始值越低 = 接触/按压越强 → 压感越大
+#   压感 <  阈值：仅持续加热，不累计进度（没有触发观察的意图）
+#   压感 >= 阈值：按压意图明确，累计长按进度直至冻结
+# 注意：默认 0.25 是个保守起点；真实触摸屏请看终端 FPS 行的 P:当前/阈值，
+#   分别轻按、重按读两个值，把阈值设在两者之间（或用 set_pressure_threshold 实时调）
+HEAT_PRESSURE_THRESHOLD = 0.55     # 可在运行时用 set_pressure_threshold 调整 0.25
+current_pressure        = 0.0      # 实时压感（用于调试 / 校准，打印在 FPS 行）
 show_isotherms      = True
 use_interpolation   = True
 brightness_scale    = 0.9
@@ -46,9 +60,15 @@ INPUT_WIDTH        = 78
 INPUT_HEIGHT       = 52
 INPUT_FRAME_SIZE   = INPUT_WIDTH * INPUT_HEIGHT
 
-h   = 2e-3
-substep = 1
+h   = 1e-3    #2e-3
 dx  = 1
+# ── 固定物理步进（决定性，不再随机器速度漂移）──
+SIM_FPS   = 60               # 主循环/物理帧率
+SUBSTEPS  = 4                # 每帧扩散子步；↑ 则扩散更快、材料对比更强
+SIM_DT    = 1.0 / SIM_FPS
+SUB_DT    = SIM_DT / SUBSTEPS
+HEAT_RATE = 150.0     #30        # 满压加热速率 °C/s —— 调这个控制升温快慢
+
 t_max = 50                    # ← 从 300 改为 50（物理温度上限）
 t_min = -40
 t_ambient   = 0.0
@@ -123,7 +143,8 @@ def handle_ws_message(msg_str):
     global current_material_name, current_ambient_name, current_cooling_name
     global rebuild_matrix_flag, reset_ambient_flag, reset_ambient_value
     global reset_sim_flag, heat_intensity_scale, isotherm_levels, brightness_scale
-    global longpress_start, freeze_progress, peak_touch_area
+    global longpress_start, freeze_progress
+    global HEAT_PRESSURE_THRESHOLD, HEAT_RATE
 
     try:
         msg    = json.loads(msg_str)
@@ -165,7 +186,6 @@ def handle_ws_message(msg_str):
             if not freeze_input:
                 longpress_start = None
                 freeze_progress = 0.0
-                peak_touch_area = 0
 
         elif action == "reset":
             with reset_sim_lock:
@@ -176,6 +196,14 @@ def handle_ws_message(msg_str):
 
         elif action == "set_brightness":
             brightness_scale = max(0.3, min(1.0, float(value)))
+
+        elif action == "set_pressure_threshold":
+            HEAT_PRESSURE_THRESHOLD = max(0.0, min(1.0, float(value)))
+            print(f"[WS] 加热压感阈值 → {HEAT_PRESSURE_THRESHOLD:.2f}")
+        
+        elif action == "set_heat_rate":
+            HEAT_RATE = max(1.0, min(120.0, float(value)))
+            print(f"[WS] 加热速率 → {HEAT_RATE:.0f} °C/s")
 
     except Exception as e:
         print(f"[WS] 解析错误: {e}")
@@ -288,8 +316,6 @@ new_data_available = False
 has_touch_current  = False
 last_touch_nd      = None          # 保存最后一帧有触摸的输入数据
 had_touch_prev     = False         # 用于后端检测抬手瞬间
-peak_touch_nd      = None          # 保存接触面积最大时的输入数据
-peak_touch_area    = 0             # 当前触摸周期的峰值面积
 
 precomputed_solver = None
 
@@ -442,6 +468,8 @@ def compute_gradients():
 
 @ti.kernel
 def process_input_kernel(threshold: ti.f32, scale: ti.f32):
+    # processed_input 现在只作「手形掩膜」用：>0 即被加热的格子。
+    # 其数值幅值在 update_temp_kernel 中不再使用（幅值由全局 pressure 给定）。
     for i, j in ti.ndrange(n_y, n_x):
         processed_input[i,j] = 0.0
     for i, j in ti.ndrange(n_y, n_x):
@@ -451,15 +479,18 @@ def process_input_kernel(threshold: ti.f32, scale: ti.f32):
 
 
 @ti.kernel
-def update_temp_kernel(ambient: ti.f32, cool: ti.f32):
+def update_temp_kernel(ambient: ti.f32, cool: ti.f32, pressure: ti.f32,
+                       p_threshold: ti.f32, heat_rate: ti.f32, dt: ti.f32):
+    # ── 加热模型：功率注入，朝 37°C（体温）弛豫，不再硬钳上限 ──
+    #   稳态由「注入功率 == 向邻居扩散散失」决定：高 k 散得快→源区更凉；低 k 聚热→更烫。
+    #   手作为 37°C 热库：环境冷则加热、环境热(>37)则降温 → 任意 ambient 下手印都可见。
     for i, j in ti.ndrange(n_y, n_x):
         cooled = t_np1[ind(i,j)] + (ambient - t_np1[ind(i,j)]) * cool
-        hi = processed_input[i,j]
-        if hi > 0:
-            # 压力线性映射：轻触≈环境温度，按实→体温37°C
-            blend = ti.min(hi * 10.0, 1.0)
-            target = ambient + blend * (37.0 - ambient)
-            t_np1[ind(i,j)] = cooled * 0.7 + target * 0.3
+        if processed_input[i,j] > 0:
+            blend = ti.min(pressure / ti.max(p_threshold, 1e-6), 1.0)
+            delta = 37.0 - cooled
+            step  = ti.min(heat_rate * blend * dt, ti.abs(delta))
+            t_np1[ind(i,j)] = cooled + (1.0 if delta > 0 else -1.0) * step
         else:
             t_np1[ind(i,j)] = cooled
 
@@ -506,8 +537,8 @@ def encode_temp_frame():
 def read_shared_memory():
     global new_data_available, has_touch_current, last_touch_nd
     global had_touch_prev, freeze_input
-    global peak_touch_nd, peak_touch_area
     global longpress_start, freeze_progress
+    global current_pressure
     HEADER_SIZE = 12
     mmf = None
     try:
@@ -526,38 +557,50 @@ def read_shared_memory():
                 raw = mmf.read(INPUT_FRAME_SIZE)
                 if len(raw) >= INPUT_FRAME_SIZE:
                     raw_uint8 = np.frombuffer(raw[:INPUT_FRAME_SIZE], dtype=np.uint8).copy()
-                    contact_area = int(np.sum(raw_uint8 < input_threshold))
+                    contact_mask = raw_uint8 < input_threshold
+                    contact_area = int(np.sum(contact_mask))
                     touch_detected = contact_area > 5
+                    # ── 归一化压感：接触区深度的 90 分位 / 阈值，范围 0~1 ──
+                    #    原始值越低 = 按得越重 → 深度越大
+                    #    用 90 分位（接触区内较深的部分）：真实反映「按得有多重」，
+                    #    既不像「均值」被边缘浅接触格子拉低，又比「单格峰值」抗噪
+                    if contact_area > 0:
+                        depth = input_threshold - raw_uint8[contact_mask].astype(np.float32)
+                        pressure = float(np.percentile(depth, 90)) / float(input_threshold)
+                    else:
+                        pressure = 0.0
                     nd = raw_uint8.reshape(INPUT_HEIGHT,INPUT_WIDTH).astype(np.float32)/255.0
                     with data_lock:
                         has_touch_current = touch_detected
+                        current_pressure  = pressure
 
                         if freeze_input:
                             # 已冻结：只更新触摸状态（前端用来检测恢复）
                             pass
                         elif touch_detected:
-                            # 正常更新输入
+                            # 持续加热：始终更新输入（无论轻按重按）
                             try:
                                 input_data.from_numpy(nd); new_data_available = True
                             except: pass
-                            # 追踪峰值接触面积
-                            if contact_area >= peak_touch_area * 0.9:
-                                peak_touch_nd = nd.copy()
-                                peak_touch_area = contact_area
-                            # 长按计时
-                            if longpress_start is None:
-                                longpress_start = time.time()
-                            elapsed = time.time() - longpress_start
-                            freeze_progress = min(1.0, elapsed / LONGPRESS_DURATION)
-                            # 达到时长：冻结，恢复峰值输入
-                            if freeze_progress >= 1.0:
-                                freeze_input = True
-                                freeze_progress = 1.0
-                                if peak_touch_nd is not None:
+                            # ── 压感门控 ──
+                            if pressure >= HEAT_PRESSURE_THRESHOLD:
+                                # 重按：意图明确 → 累计长按进度
+                                if longpress_start is None:
+                                    longpress_start = time.time()
+                                elapsed = time.time() - longpress_start
+                                freeze_progress = min(1.0, elapsed / LONGPRESS_DURATION)
+                                # 达到时长：冻结「当前帧」，保持连续（不回跳到峰值帧）
+                                if freeze_progress >= 1.0:
+                                    freeze_input = True
+                                    freeze_progress = 1.0
                                     try:
-                                        input_data.from_numpy(peak_touch_nd)
+                                        input_data.from_numpy(nd)
                                         new_data_available = True
                                     except: pass
+                            else:
+                                # 轻按：仅持续加热，不累计进度（没有触发观察的意图）
+                                longpress_start = None
+                                freeze_progress = 0.0
                         else:
                             # 触摸消失但未冻结：重置计时
                             try:
@@ -565,7 +608,6 @@ def read_shared_memory():
                             except: pass
                             longpress_start = None
                             freeze_progress = 0.0
-                            peak_touch_area = 0
 
                         had_touch_prev = touch_detected
                 time.sleep(1/input_update_rate)
@@ -595,8 +637,17 @@ last_fps_time  = time.time()
 last_frame_enc = time.time()
 FPS_ENCODE_CAP = 60
 
+last_sim_time = time.time()
+
 try:
     while True:
+        # ── 节流到固定 SIM_FPS：物理步进不再随 CPU 速度乱飙 ──
+        _now = time.time()
+        _elapsed = _now - last_sim_time
+        if _elapsed < SIM_DT:
+            time.sleep(SIM_DT - _elapsed)
+        last_sim_time = time.time()
+
         # ── flag 处理 ──
         with rebuild_matrix_lock:
             if rebuild_matrix_flag:
@@ -623,9 +674,17 @@ try:
 
         # ── 仿真步进 ──
         if not paused:
-            for _ in range(substep):
+            # 取本帧用于加热幅值的全局压感标量
+            with data_lock:
+                _pressure = current_pressure
+                _frozen   = freeze_input
+            # 冻结观察期间：手形已锁定，强制 blend=1.0（满功率），
+            # 即使手抬起 pressure→0 也保持热源不冷却，可继续观察扩散。
+            p_eff = HEAT_PRESSURE_THRESHOLD if _frozen else _pressure
+            for _ in range(SUBSTEPS):
                 t_np1.from_numpy(precomputed_solver.solve(t_n))
-                update_temp_kernel(t_ambient, cooling_rate)
+                update_temp_kernel(t_ambient, cooling_rate, p_eff,
+                                   HEAT_PRESSURE_THRESHOLD, HEAT_RATE, SUB_DT)
                 t_n.copy_from(t_np1)
             compute_gradients()
 
@@ -651,7 +710,7 @@ try:
             with clients_lock:
                 nc = len(connected_clients)
             t_arr = t_np1.to_numpy()
-            print(f"FPS:{fps:.0f}  clients:{nc}  T:[{t_arr.min():.1f}, {t_arr.max():.1f}]  ambient={t_ambient:.0f}"
+            print(f"FPS:{fps:.0f}  clients:{nc}  P:{current_pressure:.2f}/{HEAT_PRESSURE_THRESHOLD:.2f}  HR:{HEAT_RATE:.0f}  T:[{t_arr.min():.1f}, {t_arr.max():.1f}]  ambient={t_ambient:.0f}"
                   f"  {current_material_name} | {current_ambient_name} | {current_cooling_name}")
             frame_count = 0; last_fps_time = now
 

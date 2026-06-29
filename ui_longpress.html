@@ -139,7 +139,7 @@
 
     <div id="frozen-indicator"
          class="fixed top-4 left-1/2 -translate-x-1/2 z-50
-                flex items-center gap-2 px-4 py-2 rounded-full
+                flex items-center gap-2 px-4 py-2 rounded-full overflow-hidden
                 bg-white/70 backdrop-blur-md border border-cyan-200/60
                 shadow-[0_4px_20px_rgba(0,0,0,0.08)]
                 opacity-0 pointer-events-none transition-all duration-400
@@ -147,22 +147,14 @@
                 hover:bg-white/90 hover:shadow-[0_4px_24px_rgba(0,0,0,0.12)]
                 active:scale-95"
          style="transition: opacity 0.4s ease, transform 0.4s ease;">
-        <span style="font-size:14px;">❄️</span>
-        <span id="frozen-label" class="text-xs font-medium tracking-widest text-slate-500">FROZEN</span>
-        <span id="frozen-hint" class="text-[10px] text-slate-400 tracking-wide">tap to observe</span>
-    </div>
-
-    <!-- 长按进度条 -->
-    <div id="longpress-bar"
-         class="fixed top-0 left-0 z-50 pointer-events-none"
-         style="width: 100%; height: 4px; opacity: 0; transition: opacity 0.2s ease;">
-        <div id="longpress-fill"
-             style="height: 100%; width: 0%; 
-                    background: linear-gradient(90deg, rgba(251,191,36,0.8), rgba(239,68,68,0.9));
-                    border-radius: 0 2px 2px 0;
-                    transition: width 0.05s linear;
-                    box-shadow: 0 0 8px rgba(251,191,36,0.5);">
-        </div>
+        <div id="frozen-fill"
+             style="position:absolute; inset:0; width:0%; z-index:0;
+                    background: linear-gradient(90deg, rgba(251,191,36,0.55), rgba(239,68,68,0.65));
+                    transition: width 0.06s linear;"></div>
+        <span style="font-size:14px; position:relative; z-index:1;">❄️</span>
+        <span id="frozen-label" class="relative z-[1] text-xs font-medium tracking-widest text-slate-500">FROZEN</span>
+        <span id="frozen-hint" class="relative z-[1] text-[10px] text-slate-400 tracking-wide"
+              style="display:inline-block; min-width:88px; text-align:center; white-space:nowrap;">tap to observe</span>
     </div>
 
     <div id="colorbar-container">
@@ -639,6 +631,12 @@ const frozenEl    = document.getElementById('frozen-indicator');
 const frozenLabel = document.getElementById('frozen-label');
 const frozenHint  = document.getElementById('frozen-hint');
 const frozenIcon  = frozenEl.querySelector('span');
+const frozenFill  = document.getElementById('frozen-fill');
+
+const FILL_GRADIENT = 'linear-gradient(90deg, rgba(251,191,36,0.55), rgba(239,68,68,0.65))';
+function fillCharging(p) { frozenFill.style.background = FILL_GRADIENT; frozenFill.style.width = (p * 100) + '%'; }
+function fillFull()      { frozenFill.style.background = FILL_GRADIENT; frozenFill.style.width = '100%'; }  // 充满后保持同一渐变，不变纯色
+function fillReset()     { frozenFill.style.background = FILL_GRADIENT; frozenFill.style.width = '0%'; }
 
 function showModeIndicator(mode) {
     // mode: 'OBSERVE_HOLD' | 'OBSERVE_COOL' | false (hide)
@@ -646,15 +644,18 @@ function showModeIndicator(mode) {
         frozenIcon.textContent  = '🔥';
         frozenLabel.textContent = 'HOLD';
         frozenHint.textContent  = 'tap → cooling';
+        fillFull();                         // 充满后保持同一渐变（满格），不清空、不变纯色
         frozenEl.classList.remove('opacity-0', '-translate-y-3', 'pointer-events-none');
         frozenEl.classList.add('opacity-100', 'translate-y-0');
     } else if (mode === 'OBSERVE_COOL') {
         frozenIcon.textContent  = '❄️';
         frozenLabel.textContent = 'COOLING';
         frozenHint.textContent  = 'tap → live';
+        fillReset();
         frozenEl.classList.remove('opacity-0', '-translate-y-3', 'pointer-events-none');
         frozenEl.classList.add('opacity-100', 'translate-y-0');
     } else {
+        fillReset();
         frozenEl.classList.add('opacity-0', '-translate-y-3', 'pointer-events-none');
         frozenEl.classList.remove('opacity-100', 'translate-y-0');
     }
@@ -673,8 +674,18 @@ frozenEl.addEventListener('click', (e) => {
 });
 
 // ── 二进制帧解析 ──
-const longpressBar  = document.getElementById('longpress-bar');
-const longpressFill = document.getElementById('longpress-fill');
+// 充能：长按时直接「填满」顶端的 HOLD 按钮（复用 frozen-indicator）
+function showCharge(progress) {
+    frozenIcon.textContent  = '🔥';
+    frozenLabel.textContent = 'HOLD';
+    frozenHint.textContent  = Math.round(progress * 100) + '%';
+    fillCharging(progress);
+    frozenEl.classList.remove('opacity-0', '-translate-y-3', 'pointer-events-none');
+    frozenEl.classList.add('opacity-100', 'translate-y-0');
+}
+function hideCharge() {
+    showModeIndicator(false);   // 隐藏并清空填充
+}
 
 function onBinaryFrame(buffer) {
     if (!glReady) return;
@@ -689,17 +700,15 @@ function onBinaryFrame(buffer) {
     const progressRaw       = view.getUint8(offset);  offset += 1;
     const progress = progressRaw / 255;   // 0.0 - 1.0
 
-    // ── 进度条显示 ──
+    // ── 充能：按压进度逐渐填满顶端 HOLD 按钮 ──
+    // 进度仅在「重按」(后端压感门控通过) 时才会 >0，轻触加热时 progress 恒为 0 → 按钮隐藏
     if (displayMode === 'LIVE') {
         if (hasTouchThisFrame && progress > 0 && progress < 1.0) {
-            longpressBar.style.opacity = '1';
-            longpressFill.style.width  = (progress * 100) + '%';
-        } else {
-            longpressBar.style.opacity = '0';
-            longpressFill.style.width  = '0%';
+            showCharge(progress);
+        } else if (progress < 1.0) {
+            // 未达标 → 隐藏；已达标(>=1.0)交给状态机转 HOLD，避免充满瞬间闪一下白
+            hideCharge();
         }
-    } else {
-        longpressBar.style.opacity = '0';
     }
 
     // ── 长按状态机 ──
@@ -707,7 +716,6 @@ function onBinaryFrame(buffer) {
         // 长按达标 → 进入 OBSERVE_HOLD（后端已自动冻结）
         displayMode = 'OBSERVE_HOLD';
         showModeIndicator('OBSERVE_HOLD');
-        longpressBar.style.opacity = '0';
     } else if (displayMode === 'OBSERVE_HOLD' && hasTouchThisFrame && !wasObserveHold) {
         // 冻结后手已抬起又重新触摸 → 恢复 LIVE
         displayMode = 'LIVE';
@@ -791,6 +799,16 @@ function sendCommand(action, value) {
 }
 
 connectWS();
+
+// ── 手动调节加热压感阈值：[ 减小 / ] 增大（步进 0.02，0~1）──
+let pressureThreshold = 0.25;   // 与后端默认值保持一致
+window.addEventListener('keydown', (e) => {
+    if (e.key !== '[' && e.key !== ']') return;
+    pressureThreshold += (e.key === ']' ? 0.02 : -0.02);
+    pressureThreshold = Math.max(0, Math.min(1, Math.round(pressureThreshold * 100) / 100));
+    sendCommand('set_pressure_threshold', pressureThreshold);
+    showToast(`加热压感阈值: ${pressureThreshold.toFixed(2)}   （[ 减 · ] 增）`);
+});
 
 // ════════════════════════════════════════════════════════
 //  UI 菜单系统
