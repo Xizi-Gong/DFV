@@ -1,0 +1,20 @@
+{
+  "simulator": "fluid",
+  "scene": "small_honey",
+  "input_condition": "sweep_dynamic",
+  "input_mode": "sweep",
+  "input_phase": "dynamic",
+  "mask_active_frames": 10,
+  "timestamp": "2026-06-04T18:08:04.590187+00:00",
+  "fps_avg": 7.973895380232076,
+  "frame_time_p95_ms": 156.48630000032426,
+  "sim_step_ms": 48.20012000018323,
+  "render_ms": 77.20839999983582,
+  "gpu_util_avg": 25.0,
+  "vram_mb": 193.0,
+  "rss_mb": 331.6328125,
+  "nan_detected": false,
+  "diverged": false,
+  "crashed": false,
+  "notes": "Backend-only benchmark. GUI and browser WebSocket end-to-end FPS are not measured. Fluid no_mask_stable uses the existing default Karman cylinder path; dynamic/recovery conditions use the existing shared hand-mask obstacle path."
+}

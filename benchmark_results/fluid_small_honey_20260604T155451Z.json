@@ -1,0 +1,16 @@
+{
+  "simulator": "fluid",
+  "scene": "small_honey",
+  "timestamp": "2026-06-04T15:54:51.755502+00:00",
+  "fps_avg": 12.512336381649742,
+  "frame_time_p95_ms": 100.71789999983594,
+  "sim_step_ms": 20.457540000006702,
+  "render_ms": 59.463129999903686,
+  "gpu_util_avg": 27.0,
+  "vram_mb": 193.0,
+  "rss_mb": 333.25390625,
+  "nan_detected": false,
+  "diverged": false,
+  "crashed": false,
+  "notes": "Backend-only benchmark. GUI and browser WebSocket end-to-end FPS are not measured."
+}

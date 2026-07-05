@@ -1,0 +1,20 @@
+{
+  "simulator": "fluid",
+  "scene": "large_water",
+  "input_condition": "interactive_sparse",
+  "input_mode": "press_hold",
+  "input_phase": "dynamic",
+  "mask_active_frames": 10,
+  "timestamp": "2026-06-11T17:39:50.135823+00:00",
+  "fps_avg": 17.702310859642715,
+  "frame_time_p95_ms": 60.773799999878975,
+  "sim_step_ms": 26.472689999991417,
+  "render_ms": 30.016889999933483,
+  "gpu_util_avg": 10.0,
+  "vram_mb": 193.0,
+  "rss_mb": 324.07421875,
+  "nan_detected": false,
+  "diverged": false,
+  "crashed": false,
+  "notes": "Backend-only benchmark. GUI and browser WebSocket end-to-end FPS are not measured. Fluid no_mask_stable uses the existing default Karman cylinder path; dynamic/recovery conditions use the existing shared hand-mask obstacle path."
+}

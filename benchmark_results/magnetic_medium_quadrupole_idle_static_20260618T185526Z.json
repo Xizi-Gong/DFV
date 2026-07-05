@@ -1,0 +1,20 @@
+{
+  "simulator": "magnetic",
+  "scene": "medium_quadrupole",
+  "input_condition": "idle_static",
+  "input_mode": "none",
+  "input_phase": "no_mask",
+  "mask_active_frames": 0,
+  "timestamp": "2026-06-18T18:55:26.213460+00:00",
+  "fps_avg": 0.0,
+  "frame_time_p95_ms": null,
+  "sim_step_ms": null,
+  "render_ms": null,
+  "gpu_util_avg": 1.0,
+  "vram_mb": 193.0,
+  "rss_mb": 305.5,
+  "nan_detected": false,
+  "diverged": false,
+  "crashed": true,
+  "notes": "Backend-only benchmark. GUI and browser WebSocket end-to-end FPS are not measured. Dynamic/recovery conditions use the existing shared hand-mask material update path with iron material. Exception: TaichiSyntaxError: \nToo many arguments. Expected (A : <taichi.types.annotations.Template object at 0x0000023DFCACE020>, colorf : <taichi.types.annotations.Template object at 0x0000023DFCACE140>, mu_f : <taichi.types.annotations.Template object at 0x0000023DFCACE1A0>, highlight_A_field : <taichi.types.annotations.Template object at 0x0000023DFCACE200>, highlight_count : i32), got ([[0. 0. 0. ... 0. 0. 0.]\n [0. 0. 0. ... 0. 0. 0.]\n [0. 0. 0. ... 0. 0. 0.]\n ...\n [0. 0. 0. ... 0. 0. 0.]\n [0. 0. 0. ... 0. 0. 0.]\n [0. 0. 0. ... 0. 0. 0.]], [[[0. 0. 0.]\n  [0. 0. 0.]\n  [0. 0. 0.]\n  ...\n  [0. 0. 0.]\n  [0. 0. 0.]\n  [0. 0. 0.]]\n\n [[0. 0. 0.]\n  [0. 0. 0.]\n  [0. 0. 0.]\n  ...\n  [0. 0. 0.]\n  [0. 0. 0.]\n  [0. 0. 0.]]\n\n [[0. 0. 0.]\n  [0. 0. 0.]\n  [0. 0. 0.]\n  ...\n  [0. 0. 0.]\n  [0. 0. 0.]\n  [0. 0. 0.]]\n\n ...\n\n [[0. 0. 0.]\n  [0. 0. 0.]\n  [0. 0. 0.]\n  ...\n  [0. 0. 0.]\n  [0. 0. 0.]\n  [0. 0. 0.]]\n\n [[0. 0. 0.]\n  [0. 0. 0.]\n  [0. 0. 0.]\n  ...\n  [0. 0. 0.]\n  [0. 0. 0.]\n  [0. 0. 0.]]\n\n [[0. 0. 0.]\n  [0. 0. 0.]\n  [0. 0. 0.]\n  ...\n  [0. 0. 0.]\n  [0. 0. 0.]\n  [0. 0. 0.]]], [[1. 1. 1. ... 1. 1. 1.]\n [1. 1. 1. ... 1. 1. 1.]\n [1. 1. 1. ... 1. 1. 1.]\n ...\n [1. 1. 1. ... 1. 1. 1.]\n [1. 1. 1. ... 1. 1. 1.]\n [1. 1. 1. ... 1. 1. 1.]], 0.0, 0, [0. 0. 0. 0. 0. 0. 0. 0. 0. 0.], 0)."
+}

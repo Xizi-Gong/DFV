@@ -1,0 +1,20 @@
+{
+  "simulator": "magnetic",
+  "scene": "large_two_magnets",
+  "input_condition": "idle_static",
+  "input_mode": "none",
+  "input_phase": "no_mask",
+  "mask_active_frames": 0,
+  "timestamp": "2026-06-11T16:14:08.958170+00:00",
+  "fps_avg": 0.0,
+  "frame_time_p95_ms": null,
+  "sim_step_ms": null,
+  "render_ms": null,
+  "gpu_util_avg": 0.0,
+  "vram_mb": 225.0,
+  "rss_mb": 304.24609375,
+  "nan_detected": false,
+  "diverged": false,
+  "crashed": true,
+  "notes": "Backend-only benchmark. GUI and browser WebSocket end-to-end FPS are not measured. Dynamic/recovery conditions use the existing shared hand-mask material update path with iron material. Exception: RuntimeError: [offload.cpp:taichi::lang::irpass::`anonymous-namespace'::AssociateContinueScope::visit@718] struct_for cannot be nested inside a kernel, stmt=$12252"
+}

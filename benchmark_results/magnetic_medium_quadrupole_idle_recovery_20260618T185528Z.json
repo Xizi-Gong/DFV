@@ -1,0 +1,20 @@
+{
+  "simulator": "magnetic",
+  "scene": "medium_quadrupole",
+  "input_condition": "idle_recovery",
+  "input_mode": "sweep",
+  "input_phase": "recovery",
+  "mask_active_frames": 0,
+  "timestamp": "2026-06-18T18:55:28.700799+00:00",
+  "fps_avg": 0.0,
+  "frame_time_p95_ms": null,
+  "sim_step_ms": null,
+  "render_ms": null,
+  "gpu_util_avg": 9.0,
+  "vram_mb": 193.0,
+  "rss_mb": 301.5390625,
+  "nan_detected": false,
+  "diverged": false,
+  "crashed": true,
+  "notes": "Backend-only benchmark. GUI and browser WebSocket end-to-end FPS are not measured. Dynamic/recovery conditions use the existing shared hand-mask material update path with iron material. Exception: TaichiSyntaxError: \nToo many arguments. Expected (A : <taichi.types.annotations.Template object at 0x0000023DFCACE020>, colorf : <taichi.types.annotations.Template object at 0x0000023DFCACE140>, mu_f : <taichi.types.annotations.Template object at 0x0000023DFCACE1A0>, highlight_A_field : <taichi.types.annotations.Template object at 0x0000023DFCACE200>, highlight_count : i32), got ([[-0.00800507 -0.01603645 -0.02400817 ... -0.01051335 -0.0070352\n  -0.00358509]\n [-0.01603404 -0.0320144  -0.04806518 ... -0.02108606 -0.01404641\n  -0.00699974]\n [-0.02400898 -0.04806391 -0.07197907 ... -0.03161797 -0.02106027\n  -0.010509  ]\n ...\n [-0.00933824 -0.01912358 -0.02813089 ... -0.03267515 -0.02120103\n  -0.01093592]\n [-0.00637159 -0.0124886  -0.0191089  ... -0.0211772  -0.01455822\n  -0.00703783]\n [-0.00319598 -0.00634351 -0.00933103 ... -0.01094864 -0.00700235\n  -0.00376603]], [[[0. 0. 0.]\n  [0. 0. 0.]\n  [0. 0. 0.]\n  ...\n  [0. 0. 0.]\n  [0. 0. 0.]\n  [0. 0. 0.]]\n\n [[0. 0. 0.]\n  [0. 0. 0.]\n  [0. 0. 0.]\n  ...\n  [0. 0. 0.]\n  [0. 0. 0.]\n  [0. 0. 0.]]\n\n [[0. 0. 0.]\n  [0. 0. 0.]\n  [0. 0. 0.]\n  ...\n  [0. 0. 0.]\n  [0. 0. 0.]\n  [0. 0. 0.]]\n\n ...\n\n [[0. 0. 0.]\n  [0. 0. 0.]\n  [0. 0. 0.]\n  ...\n  [0. 0. 0.]\n  [0. 0. 0.]\n  [0. 0. 0.]]\n\n [[0. 0. 0.]\n  [0. 0. 0.]\n  [0. 0. 0.]\n  ...\n  [0. 0. 0.]\n  [0. 0. 0.]\n  [0. 0. 0.]]\n\n [[0. 0. 0.]\n  [0. 0. 0.]\n  [0. 0. 0.]\n  ...\n  [0. 0. 0.]\n  [0. 0. 0.]\n  [0. 0. 0.]]], [[1. 1. 1. ... 1. 1. 1.]\n [1. 1. 1. ... 1. 1. 1.]\n [1. 1. 1. ... 1. 1. 1.]\n ...\n [1. 1. 1. ... 1. 1. 1.]\n [1. 1. 1. ... 1. 1. 1.]\n [1. 1. 1. ... 1. 1. 1.]], 0.0, 0, [0. 0. 0. 0. 0. 0. 0. 0. 0. 0.], 0)."
+}

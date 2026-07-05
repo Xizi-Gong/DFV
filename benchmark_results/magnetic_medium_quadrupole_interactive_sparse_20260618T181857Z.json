@@ -1,0 +1,20 @@
+{
+  "simulator": "magnetic",
+  "scene": "medium_quadrupole",
+  "input_condition": "interactive_sparse",
+  "input_mode": "press_hold",
+  "input_phase": "dynamic",
+  "mask_active_frames": 10,
+  "timestamp": "2026-06-18T18:18:57.378139+00:00",
+  "fps_avg": 18.39913877315168,
+  "frame_time_p95_ms": 111.56100000152946,
+  "sim_step_ms": 50.49986000012723,
+  "render_ms": 3.850129999773344,
+  "gpu_util_avg": 8.0,
+  "vram_mb": 193.0,
+  "rss_mb": 275.375,
+  "nan_detected": false,
+  "diverged": false,
+  "crashed": false,
+  "notes": "Backend-only benchmark. GUI and browser WebSocket end-to-end FPS are not measured. Dynamic/recovery conditions use the existing shared hand-mask material update path with iron material."
+}

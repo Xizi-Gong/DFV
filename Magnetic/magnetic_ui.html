@@ -1,0 +1,734 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Magnetic Field Simulation</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .spring-transition {
+      transition: all 0.7s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    .fade-transition {
+      transition: opacity 0.4s ease, transform 0.4s ease;
+    }
+
+    .sub-node {
+      transform: translate(calc(-50% + var(--sx, 0px)), calc(-50% + var(--sy, 0px))) scale(var(--scale, 0));
+    }
+
+    body {
+      -webkit-font-smoothing: antialiased;
+      overflow: hidden;
+      background: #0a0a0a;
+      touch-action: manipulation;
+    }
+
+    .ws-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+      margin-right: 6px;
+      background: #94a3b8;
+      transition: background 0.4s;
+    }
+
+    .ws-dot.connected {
+      background: #34d399;
+      box-shadow: 0 0 6px #34d399;
+    }
+
+    .ws-dot.disconnected {
+      background: #f87171;
+    }
+
+    .ws-dot.connecting {
+      background: #fbbf24;
+      animation: pulse 1s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: .35; }
+    }
+
+    /* Shared stage: both canvases live in exactly the same box */
+    #sim-stage {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 587px;
+      height: 392px;
+      z-index: 0;
+    }
+
+    #sim-canvas,
+    #overlay-canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    #sim-canvas {
+      image-rendering: pixelated;
+    }
+
+    #sim-canvas {
+      z-index: 0;
+    }
+
+    #overlay-canvas {
+      z-index: 2;
+      pointer-events: none;
+    }
+
+    #app {
+      position: relative;
+      z-index: 10;
+    }
+
+    .menu-icon {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      display: block;
+      pointer-events: none;
+    }
+
+    .placeholder {
+      position: fixed;
+      inset: 0;
+      z-index: 2;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      background: radial-gradient(ellipse at top, #0f172a, #020617);
+      pointer-events: none;
+      transition: opacity 0.6s;
+    }
+
+    .placeholder.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .spinner {
+      width: 32px;
+      height: 32px;
+      border: 3px solid #334155;
+      border-top-color: #64748b;
+      border-radius: 50%;
+      animation: spin 0.9s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    #scene-badge {
+      position: fixed;
+      top: 16px;
+      left: 20px;
+      z-index: 55;
+      background: rgba(255,255,255,0.08);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255,255,255,0.15);
+      color: rgba(255,255,255,0.7);
+      font-size: 11px;
+      letter-spacing: 0.1em;
+      padding: 5px 14px;
+      border-radius: 999px;
+      font-family: 'SF Mono', 'Cascadia Code', monospace;
+      transition: all .4s;
+    }
+
+    .toggle-icon-wrap {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: color 0.4s, filter 0.4s;
+    }
+
+    .toggle-icon-wrap svg,
+    .toggle-icon-wrap img {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    .dir-on-icon {
+      color: #22d3ee !important;
+      filter: drop-shadow(0 0 6px rgba(34,211,238,0.75)) !important;
+      transform-origin: center;
+      transition: transform 0.25s ease, filter 0.4s ease;
+    }
+  </style>
+  <link rel="stylesheet" href="../ui_theme.css">
+  <script src="../gesture_lock.js"></script>
+</head>
+
+<body class="text-slate-800 h-screen w-full relative">
+
+  <div id="sim-stage">
+    <canvas id="sim-canvas" width="587" height="392"></canvas>
+    <canvas id="overlay-canvas" width="587" height="392"></canvas>
+  </div>
+
+  <div class="placeholder" id="placeholder">
+    <div class="spinner"></div>
+    <span style="font-size:13px;letter-spacing:.12em;color:#64748b">Connecting…</span>
+  </div>
+
+  <div id="ws-status-bar" class="absolute top-4 right-5 flex items-center text-xs text-slate-400 font-medium tracking-wide z-50 bg-white/5 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/10 shadow-[0_2px_10px_rgba(0,0,0,0.3)]">
+    <span id="ws-dot" class="ws-dot connecting"></span>
+    <span id="ws-label">Connecting</span>
+  </div>
+
+  <div id="scene-badge">— —</div>
+  <div id="longpress-indicator">
+    <div id="longpress-fill"></div>
+    <span id="longpress-icon">🔥</span>
+    <span id="longpress-label">HOLD</span>
+    <span id="longpress-hint">0%</span>
+  </div>
+  <script src="../longpress_ui.js"></script>
+
+  <div id="app" class="relative w-full h-full"></div>
+
+  <div id="toast" class="fixed bottom-12 left-1/2 -translate-x-1/2 bg-white/10 backdrop-blur-xl border border-white/20 text-white/80 px-6 py-3 rounded-full shadow-[0_8px_30px_rgba(0,0,0,0.3)] opacity-0 pointer-events-none transition-all duration-500 transform translate-y-4 z-50 text-sm tracking-wider font-medium">
+    Action Hint
+  </div>
+
+  <script>
+    document.addEventListener('touchmove', e => {
+      if (e.touches.length === 1) e.preventDefault();
+    }, { passive: false });
+
+    document.addEventListener('gesturestart', e => e.preventDefault());
+    document.addEventListener('gesturechange', e => e.preventDefault());
+
+    let simW = 587, simH = 392;
+    const simStage = document.getElementById('sim-stage');
+    const simCanvas = document.getElementById('sim-canvas');
+    const simCtx = simCanvas.getContext('2d');
+    const overlayCanvas = document.getElementById('overlay-canvas');
+    const overlayCtx = overlayCanvas.getContext('2d');
+    const placeholder = document.getElementById('placeholder');
+
+    let currentArrows = [];
+
+    function syncCanvasBuffers() {
+      if (simCanvas.width !== simW) simCanvas.width = simW;
+      if (simCanvas.height !== simH) simCanvas.height = simH;
+      if (overlayCanvas.width !== simW) overlayCanvas.width = simW;
+      if (overlayCanvas.height !== simH) overlayCanvas.height = simH;
+    }
+
+    function resizeStage() {
+      const scale = Math.min(window.innerWidth / simW, window.innerHeight / simH) * 0.97;
+      simStage.style.width = Math.round(simW * scale) + 'px';
+      simStage.style.height = Math.round(simH * scale) + 'px';
+    }
+
+    function applySimulationSize(width, height) {
+      const nextW = Number(width);
+      const nextH = Number(height);
+      if (!Number.isFinite(nextW) || !Number.isFinite(nextH) || nextW <= 0 || nextH <= 0) return;
+      simW = Math.round(nextW);
+      simH = Math.round(nextH);
+      syncCanvasBuffers();
+      resizeStage();
+      drawArrows(currentArrows);
+    }
+
+    function clearArrows() {
+      syncCanvasBuffers();
+      overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+    }
+
+    function drawArrows(flat) {
+      currentArrows = Array.isArray(flat) ? flat : [];
+      syncCanvasBuffers();
+      overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+      if (!currentArrows.length) return;
+
+      const W = overlayCanvas.width;
+      const H = overlayCanvas.height;
+
+      overlayCtx.save();
+      overlayCtx.strokeStyle = 'rgba(255, 255, 255, 0.92)';
+      overlayCtx.fillStyle = 'rgba(255, 255, 255, 0.92)';
+      overlayCtx.shadowColor = 'rgba(0, 0, 0, 0.45)';
+      overlayCtx.shadowBlur = 2;
+      overlayCtx.lineWidth = 2.1;
+      overlayCtx.lineCap = 'round';
+      overlayCtx.lineJoin = 'round';
+
+      for (let i = 0; i + 3 < currentArrows.length; i += 4) {
+        const ox = currentArrows[i];
+        const oy = currentArrows[i + 1];
+        const dx = currentArrows[i + 2];
+        const dy = currentArrows[i + 3];
+
+        const sx = ox * W;
+        const sy = (1 - oy) * H;
+        const ex = (ox + dx) * W;
+        const ey = (1 - (oy + dy)) * H;
+
+        overlayCtx.beginPath();
+        overlayCtx.moveTo(sx, sy);
+        overlayCtx.lineTo(ex, ey);
+        overlayCtx.stroke();
+
+        const len = Math.hypot(ex - sx, ey - sy);
+        if (len > 2) {
+          const ux = (ex - sx) / len;
+          const uy = (ey - sy) / len;
+          const px = -uy;
+          const py = ux;
+          const hs = Math.min(7, Math.max(4, len * 0.42));
+
+          overlayCtx.beginPath();
+          overlayCtx.moveTo(ex, ey);
+          overlayCtx.lineTo(ex - hs * ux + hs * 0.45 * px, ey - hs * uy + hs * 0.45 * py);
+          overlayCtx.lineTo(ex - hs * ux - hs * 0.45 * px, ey - hs * uy - hs * 0.45 * py);
+          overlayCtx.closePath();
+          overlayCtx.fill();
+        }
+
+      }
+
+      overlayCtx.restore();
+    }
+
+    window.addEventListener('resize', () => {
+      resizeStage();
+      drawArrows(currentArrows);
+    });
+
+    syncCanvasBuffers();
+    resizeStage();
+
+    async function onBinaryFrame(buffer) {
+      const blob = new Blob([buffer], { type: 'image/jpeg' });
+      const bitmap = await createImageBitmap(blob);
+
+      syncCanvasBuffers();
+      simCtx.clearRect(0, 0, simCanvas.width, simCanvas.height);
+      simCtx.drawImage(bitmap, 0, 0, simCanvas.width, simCanvas.height);
+      bitmap.close();
+
+      placeholder.classList.add('hidden');
+    }
+
+    const WS_URL = 'ws://localhost:8765';
+    let ws = null, wsReady = false;
+
+    function connectWS() {
+      const dot = document.getElementById('ws-dot');
+      const label = document.getElementById('ws-label');
+
+      dot.className = 'ws-dot connecting';
+      label.textContent = 'Connecting';
+
+      ws = new WebSocket(WS_URL);
+      ws.binaryType = 'arraybuffer';
+
+      ws.onopen = () => {
+        wsReady = true;
+        dot.className = 'ws-dot connected';
+        label.textContent = 'Connected';
+        showToast('Connected to simulation');
+      };
+
+      ws.onmessage = e => {
+        if (e.data instanceof ArrayBuffer) {
+          onBinaryFrame(e.data);
+        } else if (typeof e.data === 'string') {
+          const msg = JSON.parse(e.data);
+          if (msg.type === 'init') {
+            applySimulationSize(msg.width, msg.height);
+            console.log('[WS] init', msg);
+          } else if (msg.type === 'arrows') {
+            drawArrows(msg.data || []);
+          } else if (msg.type === 'longpress') {
+            handleLongpressMessage(msg);
+          }
+        }
+      };
+
+      ws.onclose = () => {
+        wsReady = false;
+        dot.className = 'ws-dot disconnected';
+        label.textContent = 'Disconnected — retrying';
+        placeholder.classList.remove('hidden');
+        clearArrows();
+        setTimeout(connectWS, 3000);
+      };
+
+      ws.onerror = () => {
+        wsReady = false;
+        dot.className = 'ws-dot disconnected';
+      };
+    }
+
+    function sendCommand(action, value) {
+      if (ws && wsReady) {
+        ws.send(JSON.stringify({ action, value }));
+      } else {
+        showToast('Not connected');
+      }
+    }
+
+    connectWS();
+
+    // const TOGGLE_ICONS = {
+    //   intensity: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="4.5"/><line x1="12" y1="19.5" x2="12" y2="22"/><line x1="2" y1="12" x2="4.5" y2="12"/><line x1="19.5" y1="12" x2="22" y2="12"/><line x1="4.9" y1="4.9" x2="6.7" y2="6.7"/><line x1="17.3" y1="17.3" x2="19.1" y2="19.1"/><line x1="4.9" y1="19.1" x2="6.7" y2="17.3"/><line x1="17.3" y1="6.7" x2="19.1" y2="4.9"/></svg>`,
+    //   fieldline: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M2 8 C5 3, 9 3, 12 8 S19 13, 22 8"/><path d="M2 12 C5 7, 9 7, 12 12 S19 17, 22 12"/><path d="M2 16 C5 11, 9 11, 12 16 S19 21, 22 16"/></svg>`,
+    //   direction: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="8" x2="15" y2="8"/><polyline points="11 4 15 8 11 12"/><line x1="3" y1="16" x2="15" y2="16"/><polyline points="11 12 15 16 11 20"/></svg>`,
+    //   filings: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 4h4v9a2 2 0 0 0 4 0V4h4"/><line x1="6" y1="4" x2="18" y2="4"/><line x1="4" y1="20" x2="8" y2="20"/><line x1="16" y1="20" x2="20" y2="20"/></svg>`
+    // };
+
+    const TOGGLE_ICONS = {
+      // 将原有的 <svg>...</svg> 替换为您的图片路径
+      intensity: `<img src="./icons/Visualization/intensity.png" style="width: 100%; height: 100%; object-fit: contain; pointer-events: none;">`,
+      fieldline: `<img src="./icons/Visualization/fieldline.png" style="width: 100%; height: 100%; object-fit: contain; pointer-events: none;">`,
+      direction: `<img src="./icons/Visualization/direction.png" style="width: 100%; height: 100%; object-fit: contain; pointer-events: none;">`,
+      filings: `<img src="./icons/Visualization/filings.png" style="width: 100%; height: 100%; object-fit: contain; pointer-events: none;">`
+    };
+    const SCENE_NAMES = ['Single Wire','Dipole','Uniform Field','Quadrupole','Solenoid','Horseshoe','Two Magnets'];
+    const MAT_NAMES = ['air','flesh','ceramic','iron','bismuth','repel'];
+
+    const ICON_MAP = {
+      // 场景图标
+      'Single Wire':   './icons/Scene/wire.png',
+      'Dipole':        './icons/Scene/dipole.png',
+      'Uniform Field': './icons/Scene/uniform.png',
+      'Quadrupole':    './icons/Scene/quadrupole.png',
+      'Solenoid':      './icons/Scene/solenoid.png',
+      'Horseshoe':     './icons/Scene/horseshoe.png',
+      'Two Magnets':   './icons/Scene/two_magnets.png',
+      // 材质图标
+      'air':     './icons/Material/air.png',
+      'flesh':   './icons/Material/flesh.png',
+      'ceramic': './icons/Material/ceramic.png',
+      'iron':    './icons/Material/iron.png',
+      'bismuth': './icons/Material/bismuth.png',
+      'repel':   './icons/Material/repel.png',
+    };
+    const iconSrc = k => ICON_MAP[k] ?? `https://api.dicebear.com/9.x/shapes/svg?seed=${encodeURIComponent(k)}&backgroundColor=transparent`;
+
+    const menus = [
+      { type:'radial', id:'scene', name:'Scene', params:SCENE_NAMES, selectedParam:SCENE_NAMES[0], wsAction:'set_scene' },
+      { type:'radial', id:'material', name:'Material', params:MAT_NAMES, selectedParam:'iron', wsAction:'set_material' },
+      { type:'toggle', id:'intensity', name:'Intensity', wsAction:'toggle_intensity', isOn:true },
+      { type:'toggle', id:'fieldline', name:'Field Lines', wsAction:'toggle_fieldline', isOn:true },
+      { type:'toggle', id:'direction', name:'Direction', wsAction:'toggle_direction', isOn:false },
+      { type:'toggle', id:'filings', name:'Iron Filings', wsAction:'toggle_filings', isOn:false },
+      { type:'button', id:'reset', name:'Reset', wsAction:'reset' }
+    ];
+
+    let currentState = 'IDLE', activeMenuIndex = -1;
+    const app = document.getElementById('app');
+    const radialRadius = 130, spacing = 185;
+
+    const mainBase = 'relative flex items-center justify-center w-20 h-20 rounded-full cursor-pointer backdrop-blur-md transition-all duration-500 ease-out z-20 group';
+    const subBase = 'sub-node absolute top-1/2 left-1/2 flex items-center justify-center w-16 h-16 rounded-full cursor-pointer bg-gradient-to-br from-white/70 to-white/10 backdrop-blur-md border border-white/40 shadow-[inset_2px_2px_4px_rgba(255,255,255,0.8),0_8px_20px_rgba(0,0,0,0.06)] hover:from-white/90 hover:shadow-[0_12px_24px_rgba(0,0,0,0.12)] transition-all duration-300 z-10 group';
+
+    menus.forEach((menu, i) => {
+      const group = document.createElement('div');
+      group.className = 'absolute top-[72px] left-1/2 spring-transition';
+      group.id = `group-${i}`;
+
+      const mc = document.createElement('div');
+      mc.id = `main-${i}`;
+      mc.className = mainBase;
+
+      if (menu.type === 'toggle') {
+        const iw = document.createElement('div');
+        iw.id = `main-img-${i}`;
+        iw.className = 'toggle-icon-wrap group-hover:scale-110 transition-transform duration-300';
+        iw.style.color = menu.isOn ? '#22d3ee' : 'rgba(100,116,139,0.85)';
+        iw.innerHTML = TOGGLE_ICONS[menu.id] || '';
+        mc.appendChild(iw);
+      } else if (menu.type === 'radial') {
+        const img = document.createElement('img');
+        img.id = `main-img-${i}`;
+        img.src = iconSrc(menu.selectedParam);
+        img.className = 'menu-icon drop-shadow-[0_6px_6px_rgba(0,0,0,0.15)] group-hover:scale-110 transition-transform duration-300';
+        img.draggable = false;
+        mc.appendChild(img);
+      } else {
+        // const sp = document.createElement('span');
+        // sp.textContent = '↺';
+        // sp.style.cssText = 'font-size:28px;color:rgba(255,255,255,0.7);line-height:1;user-select:none;';
+        // mc.appendChild(sp);
+        const img = document.createElement('img');
+        // 替换为您的重置图标路径
+        img.src = './icons/Visualization/Reset.png'; 
+        // 保持与上方其他图标一致的样式（大小、阴影和悬浮缩放动画）
+        img.className = 'menu-icon drop-shadow-[0_6px_6px_rgba(0,0,0,0.15)] group-hover:scale-110 transition-transform duration-300';
+        img.draggable = false;
+        mc.appendChild(img);
+      }
+
+      const lbl = document.createElement('div');
+      lbl.id = `label-${i}`;
+      lbl.className = 'absolute top-[calc(100%+12px)] left-1/2 -translate-x-1/2 px-4 py-1.5 bg-white/80 backdrop-blur-md border border-white/60 text-slate-700 font-medium text-sm tracking-widest rounded-full shadow-[0_4px_16px_rgba(0,0,0,0.06)] whitespace-nowrap fade-transition opacity-0 pointer-events-none z-30';
+      lbl.textContent = menu.name;
+      mc.appendChild(lbl);
+
+      if (menu.type !== 'button') {
+        const sl = document.createElement('div');
+        sl.id = `main-sel-label-${i}`;
+        sl.className = 'absolute top-[calc(100%+8px)] left-1/2 -translate-x-1/2 text-xs whitespace-nowrap transition-all duration-300 font-medium tracking-wider pointer-events-none drop-shadow-sm';
+        sl.style.color = 'rgba(148,163,184,0.85)';
+        sl.textContent = menu.type === 'radial' ? menu.selectedParam : (menu.isOn ? 'ON' : 'OFF');
+        mc.appendChild(sl);
+      }
+
+      mc.addEventListener('click', e => {
+        e.stopPropagation();
+        handleMainClick(i);
+      });
+
+      group.appendChild(mc);
+
+      if (menu.type === 'radial') {
+        const sub = document.createElement('div');
+        sub.className = 'absolute inset-0 z-10 pointer-events-none';
+        const N = menu.params.length;
+
+        menu.params.forEach((param, pi) => {
+          const s = document.createElement('div');
+          s.className = subBase + ` sub-${i}`;
+
+          const img2 = document.createElement('img');
+          img2.src = iconSrc(param);
+          img2.className = 'menu-icon drop-shadow-[0_4px_4px_rgba(0,0,0,0.15)] group-hover:scale-110 transition-transform duration-300';
+          img2.draggable = false;
+          s.appendChild(img2);
+
+          const sl2 = document.createElement('div');
+          sl2.className = 'absolute top-1/2 left-1/2 text-[10px] text-white/60 whitespace-nowrap transition-colors group-hover:text-white font-medium tracking-wider pointer-events-none drop-shadow-sm';
+          sl2.textContent = param;
+
+          const itemRadius = menu.id === 'scene' ? 145 : radialRadius;
+          const spread = menu.id === 'scene' ? 170 : Math.min(140, 24 * N);
+          const ang = N === 1 ? 90 : (90 - spread / 2) + (spread / (N - 1)) * pi;
+          const rad = ang * Math.PI / 180;
+          const lx = Math.cos(rad) * 42, ly = Math.sin(rad) * 42;
+
+          sl2.style.transform =
+            `translate(calc(${-50 + Math.cos(rad) * 50}% + ${lx}px), calc(${-50 + Math.sin(rad) * 50}% + ${ly}px))`;
+
+          s.appendChild(sl2);
+          s.style.setProperty('--sx', itemRadius * Math.cos(rad) + 'px');
+          s.style.setProperty('--sy', itemRadius * Math.sin(rad) + 'px');
+          s.style.transitionDelay = pi * 0.03 + 's';
+
+          s.addEventListener('click', e => {
+            e.stopPropagation();
+            handleSubClick(i, pi, param);
+          });
+
+          sub.appendChild(s);
+        });
+
+        group.appendChild(sub);
+      }
+
+      app.appendChild(group);
+    });
+
+    document.body.addEventListener('click', () => {
+      if (currentState !== 'IDLE') {
+        currentState = 'IDLE';
+        activeMenuIndex = -1;
+        updateDOM();
+      }
+    });
+
+    function handleMainClick(i) {
+      const m = menus[i];
+
+      if (m.type === 'button') {
+        sendCommand(m.wsAction, null);
+        showToast('Scene reset');
+        return;
+      }
+
+      if (currentState === 'IDLE') {
+        currentState = 'FOCUSED';
+        activeMenuIndex = i;
+      } else if (currentState === 'FOCUSED') {
+        if (i === activeMenuIndex) {
+          if (m.type === 'radial') {
+            currentState = 'EXPANDED';
+          } else {
+            m.isOn = !m.isOn;
+            sendCommand(m.wsAction, m.isOn);
+            showToast(m.name + ': ' + (m.isOn ? 'ON' : 'OFF'));
+          }
+        } else {
+          activeMenuIndex = i;
+        }
+      } else if (currentState === 'EXPANDED') {
+        if (i === activeMenuIndex) {
+          currentState = 'IDLE';
+          activeMenuIndex = -1;
+        } else {
+          currentState = 'FOCUSED';
+          activeMenuIndex = i;
+        }
+      }
+
+      updateDOM();
+    }
+
+    function handleSubClick(mi, pi, param) {
+      const m = menus[mi];
+      m.selectedParam = param;
+
+      if (m.id === 'scene') {
+        sendCommand('set_scene', pi);
+        document.getElementById('scene-badge').textContent = param;
+        showToast('Scene: ' + param);
+      }
+
+      if (m.id === 'material') {
+        sendCommand('set_material', param);
+        showToast('Material: ' + param);
+      }
+
+      currentState = 'IDLE';
+      activeMenuIndex = -1;
+      updateDOM();
+    }
+
+    function updateDOM() {
+      const N = menus.length;
+
+      menus.forEach((m, i) => {
+        const group = document.getElementById(`group-${i}`);
+        const mc = document.getElementById(`main-${i}`);
+        const iw = document.getElementById(`main-img-${i}`);
+        const sl = document.getElementById(`main-sel-label-${i}`);
+        const lbl = document.getElementById(`label-${i}`);
+        const subs = document.querySelectorAll(`.sub-${i}`);
+
+        if (m.type === 'radial' && iw) iw.src = iconSrc(m.selectedParam);
+
+        if (m.type === 'toggle' && iw) {
+          const isDir = m.id === 'direction';
+          if (m.isOn) {
+            iw.style.color = '#22d3ee';
+            iw.style.filter = 'drop-shadow(0 0 5px rgba(34,211,238,0.7))';
+            iw.classList.add('dir-on-icon');
+          } else {
+            iw.style.color = 'rgba(100,116,139,0.85)';
+            iw.style.filter = 'none';
+            iw.classList.remove('dir-on-icon');
+          }
+        }
+
+        if (sl) {
+          if (m.type === 'radial') {
+            sl.textContent = m.selectedParam;
+            sl.style.color = 'rgba(148,163,184,0.85)';
+          } else {
+            sl.textContent = m.isOn ? 'ON' : 'OFF';
+            sl.style.color = m.isOn ? '#22d3ee' : 'rgba(148,163,184,0.85)';
+            sl.style.fontWeight = m.isOn ? '700' : '400';
+          }
+        }
+
+        const responsiveSpacing = Math.min(spacing, Math.max(88, (window.innerWidth - 120) / Math.max(1, N - 1)));
+        const xOff = (i - (N - 1) / 2) * responsiveSpacing;
+
+        let scale = 1, opacity = 0.65, zIndex = 10, subScale = 0;
+        let ring = 'bg-gradient-to-br from-white/40 to-white/10 border border-white/30 shadow-[inset_2px_2px_6px_rgba(255,255,255,0.6),0_8px_24px_rgba(0,0,0,0.05)]';
+
+        const onRing = 'bg-gradient-to-br from-white/60 to-white/20 border border-cyan-400/60 shadow-[inset_2px_2px_6px_rgba(255,255,255,0.8),0_8px_24px_rgba(34,211,238,0.2)]';
+
+        const onFocusRing = 'bg-gradient-to-br from-white/90 to-white/60 border border-cyan-400 shadow-[inset_2px_2px_10px_rgba(255,255,255,1),0_12px_32px_rgba(34,211,238,0.4)]';
+
+        if (currentState === 'IDLE') {
+          opacity = (m.type === 'toggle' && m.isOn) ? 0.85 : 0.65;
+          if (m.type === 'toggle' && m.isOn) ring = onRing;
+        } else if (currentState === 'FOCUSED') {
+          if (i === activeMenuIndex) {
+            opacity = 1;
+            scale = 1.15;
+            zIndex = 50;
+            ring = (m.type === 'toggle' && m.isOn)
+              ? onFocusRing
+              : 'bg-gradient-to-br from-white/90 to-white/50 border border-white/80 shadow-[inset_2px_2px_10px_rgba(255,255,255,1),0_12px_32px_rgba(0,0,0,0.12)]';
+          } else {
+            opacity = (m.type === 'toggle' && m.isOn) ? 0.7 : 0.35;
+            if (m.type === 'toggle' && m.isOn) ring = onRing;
+          }
+        } else if (currentState === 'EXPANDED') {
+          if (i === activeMenuIndex && m.type === 'radial') {
+            opacity = 1;
+            scale = 1.1;
+            subScale = 1;
+            zIndex = 50;
+            ring = 'bg-white border border-white shadow-[inset_2px_2px_12px_rgba(255,255,255,1),0_16px_40px_rgba(0,0,0,0.15)]';
+          } else {
+            opacity = 0; scale = 0.82;
+          }
+        }
+
+        group.style.transform = `translate(calc(-50% + ${xOff}px), 0%) scale(${scale})`;
+        group.style.opacity = opacity;
+        group.style.zIndex = zIndex;
+        group.style.pointerEvents = opacity === 0 ? 'none' : 'auto';
+        mc.className = mainBase + ' ' + ring;
+
+        if (i === activeMenuIndex && currentState !== 'IDLE') {
+          lbl?.classList.remove('opacity-0', 'translate-y-2');
+          lbl?.classList.add('opacity-100', 'translate-y-0');
+        } else {
+          lbl?.classList.add('opacity-0', 'translate-y-2');
+          lbl?.classList.remove('opacity-100', 'translate-y-0');
+        }
+
+        subs.forEach(s => {
+          s.style.setProperty('--scale', subScale);
+          s.style.opacity = subScale ? 1 : 0;
+          s.style.pointerEvents = subScale ? 'auto' : 'none';
+        });
+      });
+    }
+
+    let toastTid;
+
+    function showToast(msg) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.classList.remove('opacity-0', 'translate-y-4');
+      t.classList.add('opacity-100', 'translate-y-0');
+
+      clearTimeout(toastTid);
+      toastTid = setTimeout(() => {
+        t.classList.remove('opacity-100', 'translate-y-0');
+        t.classList.add('opacity-0', 'translate-y-4');
+      }, 2500);
+    }
+
+    document.getElementById('scene-badge').textContent = SCENE_NAMES[0];
+    updateDOM();
+    window.addEventListener('resize', updateDOM);
+  </script>
+</body>
+</html>

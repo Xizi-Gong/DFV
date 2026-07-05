@@ -1,0 +1,16 @@
+{
+  "simulator": "magnetic",
+  "scene": "medium_quadrupole",
+  "timestamp": "2026-06-04T15:53:49.558165+00:00",
+  "fps_avg": 15.8903767401746,
+  "frame_time_p95_ms": 104.14189999937662,
+  "sim_step_ms": 56.04393499993421,
+  "render_ms": 6.886770000028264,
+  "gpu_util_avg": 23.0,
+  "vram_mb": 225.0,
+  "rss_mb": 275.12109375,
+  "nan_detected": false,
+  "diverged": false,
+  "crashed": false,
+  "notes": "Backend-only benchmark. GUI and browser WebSocket end-to-end FPS are not measured."
+}

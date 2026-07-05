@@ -1,0 +1,20 @@
+{
+  "simulator": "fluid",
+  "scene": "medium_air",
+  "input_condition": "recovery_after_sweep",
+  "input_mode": "sweep",
+  "input_phase": "recovery",
+  "mask_active_frames": 0,
+  "timestamp": "2026-06-04T18:08:19.757958+00:00",
+  "fps_avg": 5.852637037302576,
+  "frame_time_p95_ms": 202.93539999875065,
+  "sim_step_ms": 79.12861999975576,
+  "render_ms": 91.73341000005166,
+  "gpu_util_avg": 24.0,
+  "vram_mb": 193.0,
+  "rss_mb": 331.796875,
+  "nan_detected": false,
+  "diverged": false,
+  "crashed": false,
+  "notes": "Backend-only benchmark. GUI and browser WebSocket end-to-end FPS are not measured. Fluid no_mask_stable uses the existing default Karman cylinder path; dynamic/recovery conditions use the existing shared hand-mask obstacle path."
+}

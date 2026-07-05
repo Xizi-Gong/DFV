@@ -1,0 +1,70 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Build / packaging
+.Python
+build/
+dist/
+develop-eggs/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Testing / coverage
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache/
+.pytest_cache/
+.hypothesis/
+nosetests.xml
+coverage.xml
+*.cover
+
+# Notebook / tooling
+.ipynb_checkpoints/
+.python-version
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.ruff_cache/
+.pytype/
+
+# Logs / local config
+*.log
+.env
+.env.*
+*.sqlite3
+db.sqlite3
+
+# VS Code / editors
+.vscode/
+.idea/
+.spyderproject
+.spyproject
+.ropeproject/
+
+# OS junk
+.DS_Store
+Thumbs.db

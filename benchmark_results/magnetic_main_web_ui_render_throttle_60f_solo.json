@@ -1,0 +1,30 @@
+{
+  "simulator": "magnetic",
+  "mode": "web_ui",
+  "timestamp": "2026-06-11T17:04:49Z",
+  "frames": 60,
+  "fps_avg": 88.18522306733514,
+  "frame_ms": {
+    "avg": 11.339768333255051,
+    "p95": 26.623169999766105
+  },
+  "sim_ms": {
+    "avg": 3.977984999922531,
+    "p95": 1.7499450002105725
+  },
+  "compose_ms": {
+    "avg": 5.791036666657116,
+    "p95": 15.870884999685586
+  },
+  "gui_ms": {
+    "avg": 0.004413333347959754,
+    "p95": 0.029514999960156274
+  },
+  "encode_ms": {
+    "avg": 1.5618099999907524,
+    "p95": 9.7135499995602
+  },
+  "encoded_frames": 9,
+  "web_ui_only": true,
+  "notes": "Main-loop UI path benchmark; no browser decode/canvas timing included."
+}

@@ -1,0 +1,16 @@
+{
+  "simulator": "fluid",
+  "scene": "medium_air",
+  "timestamp": "2026-06-04T15:54:54.004617+00:00",
+  "fps_avg": 10.73793332796051,
+  "frame_time_p95_ms": 104.07339999983378,
+  "sim_step_ms": 28.66401000001133,
+  "render_ms": 64.46322499996313,
+  "gpu_util_avg": 35.0,
+  "vram_mb": 193.0,
+  "rss_mb": 333.2578125,
+  "nan_detected": false,
+  "diverged": false,
+  "crashed": false,
+  "notes": "Backend-only benchmark. GUI and browser WebSocket end-to-end FPS are not measured."
+}

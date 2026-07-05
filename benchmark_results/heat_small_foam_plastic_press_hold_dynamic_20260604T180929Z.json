@@ -1,0 +1,20 @@
+{
+  "simulator": "heat",
+  "scene": "small_foam_plastic",
+  "input_condition": "press_hold_dynamic",
+  "input_mode": "press_hold",
+  "input_phase": "dynamic",
+  "mask_active_frames": 10,
+  "timestamp": "2026-06-04T18:09:29.321265+00:00",
+  "fps_avg": 81.5330163868603,
+  "frame_time_p95_ms": 14.31349999984377,
+  "sim_step_ms": 9.255450000091514,
+  "render_ms": 3.0090399999608053,
+  "gpu_util_avg": 0.0,
+  "vram_mb": 0.0,
+  "rss_mb": 95.50390625,
+  "nan_detected": false,
+  "diverged": false,
+  "crashed": false,
+  "notes": "Backend-only benchmark. Heat has no import-safe main guard; benchmark executes the existing module code before the startup loop, then reuses init_fields/buildMatrices/solver/update/encode hooks. Browser WebGL end-to-end FPS requires frontend automation conditions not yet defined."
+}

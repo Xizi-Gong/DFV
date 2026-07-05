@@ -1,0 +1,37 @@
+{
+  "simulator": "fluid",
+  "mode": "local_gui_plus_websocket",
+  "timestamp": "2026-06-11T17:32:42Z",
+  "frames": 120,
+  "duration_s": 12.078278499999215,
+  "fps_avg": 9.935190681354781,
+  "encoded_fps": 9.935190681354781,
+  "frame_ms": {
+    "avg": 100.65232083332678,
+    "p95": 83.77611000018987
+  },
+  "sim_ms": {
+    "avg": 36.46567749993513,
+    "p95": 16.615304999504588
+  },
+  "compose_ms": {
+    "avg": 33.318413333358876,
+    "p95": 37.63967999943816
+  },
+  "gui_ms": {
+    "avg": 20.246025833368247,
+    "p95": 22.98582999978862
+  },
+  "encode_ms": {
+    "avg": 7.534538333356977,
+    "p95": 8.60447500031114
+  },
+  "arrows_ms": {
+    "avg": 0.024734166633303783,
+    "p95": 0.031260000196198234
+  },
+  "encoded_frames": 120,
+  "web_ui_only": false,
+  "streamline": false,
+  "notes": "Main-loop UI path benchmark; no browser decode/canvas timing included."
+}

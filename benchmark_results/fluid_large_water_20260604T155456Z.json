@@ -1,0 +1,16 @@
+{
+  "simulator": "fluid",
+  "scene": "large_water",
+  "timestamp": "2026-06-04T15:54:56.518625+00:00",
+  "fps_avg": 9.761622162939913,
+  "frame_time_p95_ms": 126.575899999807,
+  "sim_step_ms": 41.24660000002223,
+  "render_ms": 61.19477000002007,
+  "gpu_util_avg": 40.0,
+  "vram_mb": 193.0,
+  "rss_mb": 333.2578125,
+  "nan_detected": false,
+  "diverged": false,
+  "crashed": false,
+  "notes": "Backend-only benchmark. GUI and browser WebSocket end-to-end FPS are not measured."
+}
