@@ -225,6 +225,7 @@
     const placeholder = document.getElementById('placeholder');
 
     let currentArrows = [];
+    let currentArrowScale = 1;
 
     function syncCanvasBuffers() {
       if (simCanvas.width !== simW) simCanvas.width = simW;
@@ -247,7 +248,7 @@
       simH = Math.round(nextH);
       syncCanvasBuffers();
       resizeStage();
-      drawArrows(currentArrows);
+      drawArrows(currentArrows, currentArrowScale);
     }
 
     function clearArrows() {
@@ -255,14 +256,53 @@
       overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
     }
 
-    function drawArrows(flat) {
+    function drawArrows(flat, scale = 1) {
       currentArrows = Array.isArray(flat) ? flat : [];
+      currentArrowScale = Number.isFinite(Number(scale)) && Number(scale) > 0
+        ? Number(scale)
+        : 1;
       syncCanvasBuffers();
       overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
       if (!currentArrows.length) return;
 
       const W = overlayCanvas.width;
       const H = overlayCanvas.height;
+      const invScale = 1 / currentArrowScale;
+      const shafts = new Path2D();
+      const heads = new Path2D();
+
+      for (let i = 0; i + 3 < currentArrows.length; i += 4) {
+        const ox = currentArrows[i] * invScale;
+        const oy = currentArrows[i + 1] * invScale;
+        const dx = currentArrows[i + 2] * invScale;
+        const dy = currentArrows[i + 3] * invScale;
+        const sx = ox * W;
+        const sy = (1 - oy) * H;
+        const ex = (ox + dx) * W;
+        const ey = (1 - (oy + dy)) * H;
+
+        shafts.moveTo(sx, sy);
+        shafts.lineTo(ex, ey);
+
+        const len = Math.hypot(ex - sx, ey - sy);
+        if (len > 2) {
+          const ux = (ex - sx) / len;
+          const uy = (ey - sy) / len;
+          const px = -uy;
+          const py = ux;
+          const hs = Math.min(7, Math.max(4, len * 0.42));
+          heads.moveTo(ex, ey);
+          heads.lineTo(
+            ex - hs * ux + hs * 0.45 * px,
+            ey - hs * uy + hs * 0.45 * py
+          );
+          heads.lineTo(
+            ex - hs * ux - hs * 0.45 * px,
+            ey - hs * uy - hs * 0.45 * py
+          );
+          heads.closePath();
+        }
+      }
 
       overlayCtx.save();
       overlayCtx.strokeStyle = 'rgba(255, 255, 255, 0.92)';
@@ -272,53 +312,23 @@
       overlayCtx.lineWidth = 2.1;
       overlayCtx.lineCap = 'round';
       overlayCtx.lineJoin = 'round';
-
-      for (let i = 0; i + 3 < currentArrows.length; i += 4) {
-        const ox = currentArrows[i];
-        const oy = currentArrows[i + 1];
-        const dx = currentArrows[i + 2];
-        const dy = currentArrows[i + 3];
-
-        const sx = ox * W;
-        const sy = (1 - oy) * H;
-        const ex = (ox + dx) * W;
-        const ey = (1 - (oy + dy)) * H;
-
-        overlayCtx.beginPath();
-        overlayCtx.moveTo(sx, sy);
-        overlayCtx.lineTo(ex, ey);
-        overlayCtx.stroke();
-
-        const len = Math.hypot(ex - sx, ey - sy);
-        if (len > 2) {
-          const ux = (ex - sx) / len;
-          const uy = (ey - sy) / len;
-          const px = -uy;
-          const py = ux;
-          const hs = Math.min(7, Math.max(4, len * 0.42));
-
-          overlayCtx.beginPath();
-          overlayCtx.moveTo(ex, ey);
-          overlayCtx.lineTo(ex - hs * ux + hs * 0.45 * px, ey - hs * uy + hs * 0.45 * py);
-          overlayCtx.lineTo(ex - hs * ux - hs * 0.45 * px, ey - hs * uy - hs * 0.45 * py);
-          overlayCtx.closePath();
-          overlayCtx.fill();
-        }
-
-      }
-
+      overlayCtx.stroke(shafts);
+      overlayCtx.fill(heads);
       overlayCtx.restore();
     }
 
     window.addEventListener('resize', () => {
       resizeStage();
-      drawArrows(currentArrows);
+      drawArrows(currentArrows, currentArrowScale);
     });
 
     syncCanvasBuffers();
     resizeStage();
 
-    async function onBinaryFrame(buffer) {
+    let pendingBinaryFrame = null;
+    let decodingBinaryFrame = false;
+
+    async function drawBinaryFrame(buffer) {
       const blob = new Blob([buffer], { type: 'image/jpeg' });
       const bitmap = await createImageBitmap(blob);
 
@@ -326,8 +336,30 @@
       simCtx.clearRect(0, 0, simCanvas.width, simCanvas.height);
       simCtx.drawImage(bitmap, 0, 0, simCanvas.width, simCanvas.height);
       bitmap.close();
-
       placeholder.classList.add('hidden');
+    }
+
+    async function drainBinaryFrames() {
+      if (decodingBinaryFrame) return;
+      decodingBinaryFrame = true;
+      try {
+        while (pendingBinaryFrame) {
+          const buffer = pendingBinaryFrame;
+          pendingBinaryFrame = null;
+          await drawBinaryFrame(buffer);
+        }
+      } catch (err) {
+        console.warn('[WS] frame decode failed', err);
+      } finally {
+        decodingBinaryFrame = false;
+        if (pendingBinaryFrame) drainBinaryFrames();
+      }
+    }
+
+    function queueBinaryFrame(buffer) {
+      // Keep only the newest undecoded frame to bound visual latency.
+      pendingBinaryFrame = buffer;
+      drainBinaryFrames();
     }
 
     const WS_URL = 'ws://localhost:8765';
@@ -352,14 +384,14 @@
 
       ws.onmessage = e => {
         if (e.data instanceof ArrayBuffer) {
-          onBinaryFrame(e.data);
+          queueBinaryFrame(e.data);
         } else if (typeof e.data === 'string') {
           const msg = JSON.parse(e.data);
           if (msg.type === 'init') {
             applySimulationSize(msg.width, msg.height);
             console.log('[WS] init', msg);
           } else if (msg.type === 'arrows') {
-            drawArrows(msg.data || []);
+            drawArrows(msg.data || [], msg.scale || 1);
           } else if (msg.type === 'longpress') {
             handleLongpressMessage(msg);
           }

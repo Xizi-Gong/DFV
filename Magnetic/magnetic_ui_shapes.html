@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+<title>Magnetic Field Baseline · Shapes</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="../ui_theme.css" />
+<style>
+  html, body { margin:0; width:100%; height:100%; overflow:hidden; background:#0a0a0a; color:#e2e8f0; font-family:Inter, system-ui, sans-serif; }
+  body { display:flex; align-items:center; justify-content:center; touch-action:none; }
+  #stage { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); width:587px; height:392px; z-index:0; overflow:hidden; background:#020617; }
+  #sim-canvas,#overlay-canvas,#shape-canvas { position:absolute; inset:0; width:100%; height:100%; display:block; }
+  #sim-canvas { z-index:0; image-rendering:pixelated; }
+  #shape-canvas { z-index:1; touch-action:none; }
+  #overlay-canvas { z-index:2; pointer-events:none; }
+  #placeholder { position:absolute; inset:0; z-index:4; display:flex; align-items:center; justify-content:center; color:#dbeafe;
+    background:radial-gradient(ellipse at top,#0f172a,#020617); font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
+  #placeholder.hidden { display:none; }
+  #ws-status-bar { position:fixed; top:16px; right:20px; z-index:60; display:flex; gap:7px; align-items:center; padding:6px 12px;
+    border-radius:999px; border:1px solid rgba(255,255,255,.10); background:rgba(255,255,255,.05); backdrop-filter:blur(12px);
+    box-shadow:0 2px 10px rgba(0,0,0,.30); font-size:12px; font-weight:700; color:rgba(203,213,225,.78); }
+  .ws-dot { width:8px; height:8px; border-radius:50%; background:#f59e0b; }
+  .ws-dot.connected { background:#10b981; box-shadow:0 0 8px #10b981; }
+  .ws-dot.disconnected { background:#ef4444; }
+  #toast { position:fixed; left:50%; bottom:48px; transform:translate(-50%,16px); z-index:80; opacity:0; pointer-events:none;
+    padding:12px 24px; border-radius:999px; background:rgba(255,255,255,.10); color:rgba(255,255,255,.82); border:1px solid rgba(255,255,255,.18);
+    backdrop-filter:blur(18px); box-shadow:0 8px 30px rgba(0,0,0,.30); font-size:13px; transition:opacity .25s, transform .25s; letter-spacing:.08em; }
+  #toast.show { opacity:1; transform:translate(-50%,0); }
+  #hint { position:fixed; left:20px; top:16px; z-index:50; color:rgba(255,255,255,.68); font-size:11px; font-weight:650; letter-spacing:.10em;
+    padding:6px 14px; border-radius:999px; background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.14); backdrop-filter:blur(12px); font-family:'SF Mono','Cascadia Code',monospace; }
+  #shape-palette { position:fixed; right:20px; top:50%; transform:translateY(-50%); z-index:55; display:flex; flex-direction:column; gap:10px;
+    padding:12px; border-radius:28px; background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.14); backdrop-filter:blur(12px);
+    box-shadow:0 8px 30px rgba(0,0,0,.25); }
+  .shape-item { width:58px; height:58px; border-radius:999px; display:flex; align-items:center; justify-content:center; cursor:grab;
+    background:linear-gradient(135deg,rgba(255,255,255,.70),rgba(255,255,255,.10)); border:1px solid rgba(255,255,255,.30); box-shadow:inset 2px 2px 4px rgba(255,255,255,.55),0 8px 18px rgba(0,0,0,.10); }
+  .shape-item svg { width:36px; height:36px; fill:rgba(34,211,238,.22); stroke:rgba(34,211,238,.78); stroke-width:4; }
+  #ghost { position:fixed; z-index:90; width:58px; height:58px; pointer-events:none; display:none; opacity:.72; transform:translate(-50%,-50%); }
+  #ghost svg { width:58px; height:58px; fill:rgba(34,211,238,.18); stroke:rgba(34,211,238,.78); stroke-width:4; }
+  #menus { position:fixed; top:72px; left:50%; transform:translateX(-50%); z-index:70; display:flex; gap:clamp(14px,2.1vw,34px); align-items:flex-start; justify-content:center; pointer-events:none; }
+  .main-button,.param-button { position:relative; width:80px; height:80px; border-radius:999px; border:1px solid rgba(255,255,255,.40);
+    background:linear-gradient(135deg,rgba(255,255,255,.70),rgba(255,255,255,.10)); box-shadow:inset 2px 2px 4px rgba(255,255,255,.80),0 8px 20px rgba(0,0,0,.06);
+    backdrop-filter:blur(12px); display:flex; align-items:center; justify-content:center; cursor:pointer; pointer-events:auto;
+    transition:transform .5s cubic-bezier(.34,1.56,.64,1), opacity .35s ease, box-shadow .3s ease, background .3s ease; user-select:none; }
+  .main-button:hover,.param-button:hover { transform:scale(1.08); box-shadow:inset 2px 2px 4px rgba(255,255,255,.82),0 12px 24px rgba(0,0,0,.12); }
+  .main-button.active,.main-button.on { color:#22d3ee; filter:drop-shadow(0 0 6px rgba(34,211,238,.75)); }
+  .main-button img,.param-button img { width:100%; height:100%; object-fit:contain; pointer-events:none; filter:drop-shadow(0 6px 6px rgba(0,0,0,.15)); }
+  .main-button .label,.param-button .label { position:absolute; top:calc(100% + 8px); left:50%; transform:translateX(-50%); white-space:nowrap; font-size:12px; font-weight:500; letter-spacing:.10em; color:rgba(148,163,184,.90); text-shadow:0 2px 5px rgba(0,0,0,.25); }
+  #menus.expanded .main-button:not(.active) { opacity:0; pointer-events:none; transform:scale(.82); }
+  #radial-layer { position:fixed; inset:0; z-index:69; pointer-events:none; }
+  .param-button { position:fixed; width:64px; height:64px; pointer-events:auto; }
+  .param-button.selected { outline:2px solid rgba(34,211,238,.52); filter:drop-shadow(0 0 8px rgba(34,211,238,.52)); }
+  .fallback-icon { font-size:22px; font-weight:900; color:rgba(255,255,255,.75); }
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="sim-canvas" width="587" height="392"></canvas>
+  <canvas id="overlay-canvas" width="587" height="392"></canvas>
+  <canvas id="shape-canvas" width="587" height="392"></canvas>
+  <div id="placeholder">Waiting for Magnetic Shapes Backend</div>
+</div>
+
+<div id="hint">drag shapes from the right · Eraser removes touched shapes · Clear wipes all</div>
+<div id="ws-status-bar"><span id="ws-dot" class="ws-dot"></span><span id="ws-label">Connecting</span></div>
+<div id="shape-palette"></div>
+<div id="ghost"></div>
+<div id="menus"></div>
+<div id="radial-layer"></div>
+<div id="toast"></div>
+
+<script>
+const WS_URL = 'ws://localhost:8773';
+const simCanvas = document.getElementById('sim-canvas'), simCtx = simCanvas.getContext('2d');
+const overlayCanvas = document.getElementById('overlay-canvas'), overlayCtx = overlayCanvas.getContext('2d');
+const shapeCanvas = document.getElementById('shape-canvas'), shapeCtx = shapeCanvas.getContext('2d');
+const stage = document.getElementById('stage');
+const placeholder = document.getElementById('placeholder');
+const toast = document.getElementById('toast');
+const ghost = document.getElementById('ghost');
+let ws = null, wsReady = false, toastTimer = null, currentArrows = [], currentArrowScale = 1;
+let shapes = [], selId = null, nextId = 1, eraserOn = false;
+let dragNew = null, moveCtx = null, pinch = null;
+const points = new Map();
+const DEF_SIZE = 0.085;
+
+const SVG = {
+  square:'<rect x="18" y="18" width="64" height="64" rx="9"/>',
+  circle:'<circle cx="50" cy="50" r="33"/>',
+  triangle:'<polygon points="50,14 84,78 16,78"/>',
+  trapezoid:'<polygon points="31,21 69,21 84,78 16,78"/>'
+};
+function shapeSVG(t){ return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">${SVG[t]}</svg>`; }
+function showToast(text){
+  toast.textContent = text; toast.classList.add('show'); clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>toast.classList.remove('show'), 1500);
+}
+function setCanvasSize(w,h){
+  [simCanvas, overlayCanvas, shapeCanvas].forEach(c=>{ c.width=w; c.height=h; });
+  resizeStage();
+  renderShapes(); drawArrows(currentArrows,currentArrowScale);
+}
+function resizeStage(){
+  const w = simCanvas.width || 587, h = simCanvas.height || 392;
+  const scale = Math.min(window.innerWidth / w, window.innerHeight / h) * 0.97;
+  stage.style.width = Math.round(w * scale) + 'px';
+  stage.style.height = Math.round(h * scale) + 'px';
+}
+function norm(e){
+  const r = shapeCanvas.getBoundingClientRect();
+  return [Math.min(1,Math.max(0,(e.clientX-r.left)/r.width)), Math.min(1,Math.max(0,(e.clientY-r.top)/r.height))];
+}
+function hit(nx,ny){
+  for(let i=shapes.length-1;i>=0;i--){
+    const s = shapes[i], dx = (nx-s.cx)*shapeCanvas.width, dy = (ny-s.cy)*shapeCanvas.height, R = s.size*shapeCanvas.height*1.25;
+    if(Math.hypot(dx,dy) <= R) return s;
+  }
+  return null;
+}
+function renderShapes(){
+  shapeCtx.clearRect(0,0,shapeCanvas.width,shapeCanvas.height);
+  for(const s of shapes){
+    const cx=s.cx*shapeCanvas.width, cy=s.cy*shapeCanvas.height, size=s.size*shapeCanvas.height;
+    shapeCtx.save();
+    shapeCtx.translate(cx,cy); shapeCtx.rotate((s.angle||0)*Math.PI/180);
+    shapeCtx.fillStyle='rgba(34,211,238,.20)';
+    shapeCtx.strokeStyle=s.id===selId?'rgba(255,255,255,.82)':'rgba(34,211,238,.56)';
+    shapeCtx.lineWidth=s.id===selId?3:2;
+    shapeCtx.beginPath();
+    if(s.type==='circle') shapeCtx.arc(0,0,size,0,Math.PI*2);
+    else if(s.type==='square') shapeCtx.rect(-size,-size,size*2,size*2);
+    else if(s.type==='triangle'){ shapeCtx.moveTo(0,-size); shapeCtx.lineTo(.866*size,.5*size); shapeCtx.lineTo(-.866*size,.5*size); shapeCtx.closePath(); }
+    else { shapeCtx.moveTo(-.55*size,-.7*size); shapeCtx.lineTo(.55*size,-.7*size); shapeCtx.lineTo(size,.7*size); shapeCtx.lineTo(-size,.7*size); shapeCtx.closePath(); }
+    shapeCtx.fill(); shapeCtx.stroke(); shapeCtx.restore();
+  }
+}
+function sendCommand(action,value,extra){
+  if(ws && wsReady) ws.send(JSON.stringify(Object.assign({action,value}, extra || {})));
+  else showToast('Not connected');
+}
+function sendShapes(){ sendCommand('set_shapes', null, {shapes:shapes.map(s=>({type:s.type,cx:s.cx,cy:s.cy,size:s.size,angle:s.angle||0}))}); }
+
+function buildPalette(){
+  const host = document.getElementById('shape-palette');
+  host.innerHTML = '';
+  ['square','circle','triangle','trapezoid'].forEach(t=>{
+    const item = document.createElement('div');
+    item.className = 'shape-item'; item.innerHTML = shapeSVG(t);
+    item.addEventListener('pointerdown', e=>{
+      e.preventDefault(); dragNew=t; ghost.innerHTML=shapeSVG(t); ghost.style.display='block'; moveGhost(e);
+    });
+    host.appendChild(item);
+  });
+}
+function moveGhost(e){ ghost.style.left=e.clientX+'px'; ghost.style.top=e.clientY+'px'; }
+window.addEventListener('pointermove', e=>{ if(dragNew) moveGhost(e); });
+window.addEventListener('pointerup', e=>{
+  if(!dragNew) return;
+  const r = shapeCanvas.getBoundingClientRect();
+  const over = e.clientX>=r.left && e.clientX<=r.right && e.clientY>=r.top && e.clientY<=r.bottom;
+  if(over){
+    const [nx,ny] = norm(e);
+    shapes.push({id:nextId++, type:dragNew, cx:nx, cy:ny, size:DEF_SIZE, angle:0});
+    selId = shapes[shapes.length-1].id;
+    renderShapes(); sendShapes(); showToast('Shape placed');
+  }
+  dragNew=null; ghost.style.display='none';
+});
+
+shapeCanvas.addEventListener('pointerdown', e=>{
+  e.preventDefault();
+  closeRadial();
+  shapeCanvas.setPointerCapture(e.pointerId);
+  points.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  const [nx,ny] = norm(e);
+  if(eraserOn){
+    const target = hit(nx,ny);
+    if(target){ shapes = shapes.filter(s=>s.id!==target.id); selId=null; renderShapes(); sendShapes(); showToast('Shape erased'); }
+    return;
+  }
+  const target = hit(nx,ny);
+  if(target){ selId=target.id; moveCtx={id:target.id, offX:nx-target.cx, offY:ny-target.cy, moved:false}; renderShapes(); }
+  if(points.size===2 && selId){
+    const ps = [...points.values()], d = Math.hypot(ps[0].x-ps[1].x, ps[0].y-ps[1].y);
+    const s = shapes.find(x=>x.id===selId);
+    if(s) pinch={id:s.id, d0:d, size0:s.size};
+  }
+});
+shapeCanvas.addEventListener('pointermove', e=>{
+  if(!points.has(e.pointerId)) return;
+  e.preventDefault();
+  points.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(pinch && points.size>=2){
+    const ps=[...points.values()], d=Math.hypot(ps[0].x-ps[1].x, ps[0].y-ps[1].y);
+    const s=shapes.find(x=>x.id===pinch.id);
+    if(s){ s.size=Math.max(.025,Math.min(.24,pinch.size0*d/Math.max(1,pinch.d0))); renderShapes(); }
+  } else if(moveCtx && points.size===1){
+    const [nx,ny]=norm(e), s=shapes.find(x=>x.id===moveCtx.id);
+    if(s){ s.cx=Math.min(1,Math.max(0,nx-moveCtx.offX)); s.cy=Math.min(1,Math.max(0,ny-moveCtx.offY)); moveCtx.moved=true; renderShapes(); }
+  }
+});
+function endShapePointer(e){
+  points.delete(e.pointerId);
+  if(pinch && points.size<2){ pinch=null; sendShapes(); }
+  if(moveCtx && points.size===0){ if(moveCtx.moved) sendShapes(); moveCtx=null; }
+}
+shapeCanvas.addEventListener('pointerup', endShapePointer);
+shapeCanvas.addEventListener('pointercancel', endShapePointer);
+
+let pendingFrame = null;
+let decodingFrame = false;
+async function drawFrame(buf){
+  const bm = await createImageBitmap(new Blob([buf],{type:'image/jpeg'}));
+  simCtx.drawImage(bm,0,0,simCanvas.width,simCanvas.height);
+  bm.close();
+  placeholder.classList.add('hidden');
+}
+async function drainFrames(){
+  if(decodingFrame) return;
+  decodingFrame = true;
+  try{
+    while(pendingFrame){
+      const buf = pendingFrame;
+      pendingFrame = null;
+      await drawFrame(buf);
+    }
+  }catch(err){
+    console.warn('[WS] frame decode failed',err);
+  }finally{
+    decodingFrame = false;
+    if(pendingFrame) drainFrames();
+  }
+}
+function queueFrame(buf){
+  pendingFrame = buf;
+  drainFrames();
+}
+function drawArrows(flat,scale=1){
+  currentArrows = Array.isArray(flat) ? flat : [];
+  currentArrowScale = Number.isFinite(Number(scale)) && Number(scale)>0 ? Number(scale) : 1;
+  overlayCtx.clearRect(0,0,overlayCanvas.width,overlayCanvas.height);
+  if(!currentArrows.length) return;
+  const W=overlayCanvas.width, H=overlayCanvas.height, invScale=1/currentArrowScale;
+  const shafts=new Path2D(), heads=new Path2D();
+  for(let i=0;i+3<currentArrows.length;i+=4){
+    const x=currentArrows[i]*invScale*W;
+    const y=(1-currentArrows[i+1]*invScale)*H;
+    const dx=currentArrows[i+2]*invScale*W*.045;
+    const dy=-currentArrows[i+3]*invScale*H*.045;
+    const ex=x+dx, ey=y+dy;
+    shafts.moveTo(x,y); shafts.lineTo(ex,ey);
+    const len=Math.hypot(dx,dy);
+    if(len>0.5){
+      const a=Math.atan2(dy,dx), s=5;
+      heads.moveTo(ex,ey);
+      heads.lineTo(ex-s*Math.cos(a-.55),ey-s*Math.sin(a-.55));
+      heads.lineTo(ex-s*Math.cos(a+.55),ey-s*Math.sin(a+.55));
+      heads.closePath();
+    }
+  }
+  overlayCtx.save();
+  overlayCtx.lineWidth=2;
+  overlayCtx.lineCap='round';
+  overlayCtx.strokeStyle='rgba(255,255,255,.9)';
+  overlayCtx.fillStyle='rgba(255,255,255,.9)';
+  overlayCtx.stroke(shafts);
+  overlayCtx.fill(heads);
+  overlayCtx.restore();
+}
+function connectWS(){
+  const dot=document.getElementById('ws-dot'), label=document.getElementById('ws-label');
+  dot.className='ws-dot'; label.textContent='Connecting';
+  ws=new WebSocket(WS_URL); ws.binaryType='arraybuffer';
+  ws.onopen=()=>{ wsReady=true; dot.className='ws-dot connected'; label.textContent='Connected'; if(shapes.length) sendShapes(); showToast('Connected'); };
+  ws.onmessage=e=>{
+    if(e.data instanceof ArrayBuffer){ queueFrame(e.data); return; }
+    let msg; try{ msg=JSON.parse(e.data); }catch{return;}
+    if(msg.type==='init'){ setCanvasSize(msg.width||587, msg.height||392); }
+    else if(msg.type==='state'){ syncState(msg); }
+    else if(msg.type==='arrows'){ drawArrows(msg.data||[],msg.scale||1); }
+  };
+  ws.onclose=()=>{ wsReady=false; dot.className='ws-dot disconnected'; label.textContent='Disconnected'; placeholder.classList.remove('hidden'); drawArrows([]); setTimeout(connectWS,2500); };
+  ws.onerror=()=>{ wsReady=false; dot.className='ws-dot disconnected'; };
+}
+
+const svgURI = s => 'data:image/svg+xml;utf8,' + encodeURIComponent(s);
+const eraserIcon = svgURI('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none" stroke="white" stroke-width="7" stroke-linejoin="round"><path d="M18 62 L55 19 L84 44 L48 82 H31 Z"/><path d="M48 82 H86"/><path d="M38 39 L67 65"/></svg>');
+const clearIcon = svgURI('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none" stroke="white" stroke-width="8" stroke-linecap="round"><path d="M26 30 H74"/><path d="M36 30 V22 H64 V30"/><path d="M34 42 L38 78 H62 L66 42"/></svg>');
+const SCENE_NAMES = ['Single Wire','Dipole','Uniform Field','Quadrupole','Solenoid','Horseshoe','Two Magnets'];
+const MAT_NAMES = ['air','flesh','ceramic','iron','bismuth','repel'];
+const ICON_MAP = {
+  'Single Wire':'./icons/Scene/wire.png', 'Dipole':'./icons/Scene/dipole.png', 'Uniform Field':'./icons/Scene/uniform.png',
+  'Quadrupole':'./icons/Scene/quadrupole.png', 'Solenoid':'./icons/Scene/solenoid.png', 'Horseshoe':'./icons/Scene/horseshoe.png', 'Two Magnets':'./icons/Scene/two_magnets.png',
+  'air':'./icons/Material/air.png', 'flesh':'./icons/Material/flesh.png', 'ceramic':'./icons/Material/ceramic.png', 'iron':'./icons/Material/iron.png',
+  'bismuth':'./icons/Material/Bismuth.png', 'repel':'./icons/Material/repel.png',
+  'intensity':'./icons/Visualization/intensity.png', 'fieldline':'./icons/Visualization/fieldline.png',
+  'direction':'./icons/Visualization/direction.png', 'filings':'./icons/Visualization/filings.png', 'reset':'./icons/Visualization/Reset.png',
+  'eraser':eraserIcon, 'clear':clearIcon
+};
+const menus = [
+  {type:'radial', id:'scene', name:'Scene', params:SCENE_NAMES, selectedParam:SCENE_NAMES[0], action:'set_scene'},
+  {type:'radial', id:'material', name:'Material', params:MAT_NAMES, selectedParam:'iron', action:'set_material'},
+  {type:'toggle', id:'intensity', name:'Intensity', action:'toggle_intensity', isOn:true},
+  {type:'toggle', id:'fieldline', name:'Field Lines', action:'toggle_fieldline', isOn:true},
+  {type:'toggle', id:'direction', name:'Direction', action:'toggle_direction', isOn:false},
+  {type:'toggle', id:'filings', name:'Iron Filings', action:'toggle_filings', isOn:false},
+  {type:'toggle', id:'eraser', name:'Eraser', isOn:false},
+  {type:'button', id:'reset', name:'Reset', action:'reset'},
+  {type:'button', id:'clear', name:'Clear'}
+];
+let activeMenu = null;
+function iconHtml(key){ return ICON_MAP[key] ? `<img src="${ICON_MAP[key]}" alt="">` : `<span class="fallback-icon">${String(key)[0]}</span>`; }
+function buildMenus(){
+  const host=document.getElementById('menus'); host.innerHTML='';
+  menus.forEach(m=>{
+    const b=document.createElement('button');
+    b.className='main-button' + (m.isOn?' on':''); b.dataset.id=m.id;
+    b.innerHTML=`${iconHtml(m.id==='scene'?m.selectedParam:(m.id==='material'?m.selectedParam:m.id))}<span class="label">${m.name}</span>`;
+    b.addEventListener('click',()=>handleMain(m,b)); host.appendChild(b);
+  });
+}
+function closeRadial(){
+  activeMenu=null; document.getElementById('menus').classList.remove('expanded');
+  document.querySelectorAll('.main-button').forEach(b=>b.classList.remove('active'));
+  document.getElementById('radial-layer').innerHTML='';
+}
+function handleMain(m,b){
+  if(m.type==='radial'){ if(activeMenu===m.id){ closeRadial(); return; } openRadial(m,b); return; }
+  closeRadial();
+  if(m.id==='reset'){ sendCommand('reset',null); showToast('Scene reset'); return; }
+  if(m.id==='clear'){ shapes=[]; selId=null; renderShapes(); sendCommand('clear_mask',null); showToast('Shapes cleared'); return; }
+  if(m.type==='toggle'){
+    m.isOn=!m.isOn; b.classList.toggle('on',m.isOn);
+    if(m.id==='eraser'){ eraserOn=m.isOn; shapeCanvas.style.cursor=eraserOn?'not-allowed':'default'; selId=null; renderShapes(); showToast(eraserOn?'Eraser on':'Eraser off'); }
+    else { sendCommand(m.action,m.isOn); showToast(`${m.name}: ${m.isOn?'on':'off'}`); }
+  }
+}
+function openRadial(m,b){
+  closeRadial(); activeMenu=m.id; b.classList.add('active'); document.getElementById('menus').classList.add('expanded');
+  const layer=document.getElementById('radial-layer'), r=b.getBoundingClientRect(), cx=r.left+r.width/2, cy=r.top+r.height/2;
+  const N=m.params.length, radius=m.id==='scene'?145:130, start=m.id==='scene'?175:160, end=m.id==='scene'?5:20;
+  m.params.forEach((p,i)=>{
+    const t=N===1?.5:i/(N-1), angle=(start+(end-start)*t)*Math.PI/180;
+    const pb=document.createElement('button'); pb.className='param-button'+(p===m.selectedParam?' selected':'');
+    pb.style.left=`${cx+Math.cos(angle)*radius-32}px`; pb.style.top=`${cy+Math.sin(angle)*radius-32}px`;
+    pb.innerHTML=`${iconHtml(p)}<span class="label">${p}</span>`;
+    pb.addEventListener('click',()=>{ m.selectedParam=p; if(m.id==='scene') sendCommand('set_scene',i); else sendCommand('set_material',p);
+      showToast(`${m.name}: ${p}`); buildMenus(); closeRadial(); });
+    layer.appendChild(pb);
+  });
+}
+function syncState(st){
+  const scene=menus.find(m=>m.id==='scene'), material=menus.find(m=>m.id==='material');
+  if(scene && Number.isInteger(st.scene)) scene.selectedParam=SCENE_NAMES[st.scene]||scene.selectedParam;
+  if(material && st.material) material.selectedParam=st.material;
+  ['intensity','fieldline','direction','filings'].forEach(id=>{ const m=menus.find(x=>x.id===id); if(m && typeof st[id]==='boolean') m.isOn=st[id]; });
+  buildMenus();
+}
+window.addEventListener('resize',()=>{ resizeStage(); renderShapes(); drawArrows(currentArrows,currentArrowScale); closeRadial(); });
+buildPalette();
+buildMenus();
+resizeStage();
+connectWS();
+</script>
+<script src="../gesture_lock.js"></script>
+</body>
+</html>

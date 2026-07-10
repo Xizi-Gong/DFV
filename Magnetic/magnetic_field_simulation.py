@@ -13,7 +13,7 @@ from threading import Lock
 import numpy as np
 import taichi as ti
 import websockets
-from PIL import Image, ImageDraw
+from PIL import Image
 import matplotlib.pyplot as plt
 import cv2
 
@@ -40,6 +40,22 @@ DIRECTION_ARROW_START = DIRECTION_ARROW_STEP // 2
 DIRECTION_ARROW_COLS = ((disp_res_x - 1 - DIRECTION_ARROW_START) // DIRECTION_ARROW_STEP) + 1
 DIRECTION_ARROW_ROWS = ((disp_res_y - 1 - DIRECTION_ARROW_START) // DIRECTION_ARROW_STEP) + 1
 DIRECTION_ARROW_COUNT = DIRECTION_ARROW_COLS * DIRECTION_ARROW_ROWS
+TARGET_RENDER_FPS = 60
+DIRECTION_UPDATE_FPS = 30
+DIRECTION_QUANTIZATION = 10000
+FILING_RASTER_STEPS = 12
+
+# Interactive solves are advanced in short chunks so a material/mask update cannot
+# monopolize a display frame. The same PCG state continues on following frames,
+# so a stationary input still converges to the requested tolerance.
+INTERACTIVE_SOLVE_ITERS = 12
+SETTLE_SOLVE_ITERS = 12
+SCENE_CHANGE_SOLVE_ITERS = 24
+INTERACTIVE_SOLVE_TOL = 1e-4
+MASK_DIFF_THRESH = 100.0
+LOWRES_MASK_DIFF_THRESH = 1
+MASK_CHANGED_SOLVE_ITERS = INTERACTIVE_SOLVE_ITERS
+MASK_STEADY_SOLVE_ITERS = SETTLE_SOLVE_ITERS
 
 # 共享内存配置
 SHARED_MEMORY_NAME = "shared_touch_image"
@@ -88,6 +104,7 @@ initial_mask    = ti.field(dtype=ti.f32, shape=(sim_res_x, sim_res_y))
 input_mask      = ti.field(dtype=ti.f32, shape=(sim_res_x, sim_res_y))
 last_input_mask = ti.field(dtype=ti.f32, shape=(sim_res_x, sim_res_y))
 color_field     = ti.Vector.field(3, float, shape=(disp_res_x, disp_res_y))
+viridis_lut     = ti.Vector.field(3, dtype=ti.f32, shape=256)
 
 mu_field         = ti.field(dtype=ti.f32, shape=(sim_res_x, sim_res_y))
 inv_mu_field     = ti.field(dtype=ti.f32, shape=(sim_res_x, sim_res_y))
@@ -96,6 +113,8 @@ mu_base_field    = ti.field(dtype=ti.f32, shape=(sim_res_x, sim_res_y))
 sigma_base_field = ti.field(dtype=ti.f32, shape=(sim_res_x, sim_res_y))
 
 filing_density = ti.field(ti.f32, shape=(sim_res_x, sim_res_y))
+filing_outer_overlay = ti.field(ti.f32, shape=(disp_res_x, disp_res_y))
+filing_inner_overlay = ti.field(ti.f32, shape=(disp_res_x, disp_res_y))
 
 # PCG Solver 中间量
 _cg_rsold  = ti.field(ti.f32, shape=())
@@ -119,8 +138,18 @@ p_mass  = ti.field(dtype=ti.f32, shape=num_particles)
 p_start = ti.Vector.field(2, dtype=ti.f32, shape=num_particles)
 p_end   = ti.Vector.field(2, dtype=ti.f32, shape=num_particles)
 
-direction_arrow_start = ti.Vector.field(2, dtype=ti.f32, shape=DIRECTION_ARROW_COUNT)
-direction_arrow_dir   = ti.Vector.field(2, dtype=ti.f32, shape=DIRECTION_ARROW_COUNT)
+direction_arrow_dir = ti.Vector.field(2, dtype=ti.f32, shape=DIRECTION_ARROW_COUNT)
+
+_direction_arrow_starts_np = np.empty((DIRECTION_ARROW_COUNT, 2), dtype=np.float32)
+for _idx in range(DIRECTION_ARROW_COUNT):
+    _col = _idx // DIRECTION_ARROW_ROWS
+    _row = _idx - _col * DIRECTION_ARROW_ROWS
+    _direction_arrow_starts_np[_idx] = (
+        (DIRECTION_ARROW_START + _col * DIRECTION_ARROW_STEP) / disp_res_x,
+        (DIRECTION_ARROW_START + _row * DIRECTION_ARROW_STEP) / disp_res_y,
+    )
+
+_viridis_initialized = False
 
 
 # ──────────────────────────────────────────────
@@ -130,8 +159,10 @@ WS_HOST = "0.0.0.0"
 WS_PORT = 8765
 
 _latest_frame_bytes = None
+_latest_frame_seq = 0
 _latest_frame_lock  = Lock()          
 _latest_arrows_json = None
+_latest_arrows_seq = 0
 _latest_longpress_json = None
 _latest_arrows_lock = Lock()          
 _connected_clients  = set()
@@ -156,43 +187,77 @@ def _handle_ws_message(msg_str: str):
     except Exception as e:
         print(f"[WS] 解析失败: {e}")
 
+def _set_latest_arrows_json(payload):
+    global _latest_arrows_json, _latest_arrows_seq
+    with _latest_arrows_lock:
+        if payload == _latest_arrows_json:
+            return False
+        _latest_arrows_json = payload
+        _latest_arrows_seq += 1
+    return True
+
 async def _ws_handler(websocket):
-    try: await websocket.send(_WS_INIT_MSG)
+    try:
+        await websocket.send(_WS_INIT_MSG)
+        with _latest_arrows_lock:
+            arrows_json = _latest_arrows_json
+        if arrows_json is not None:
+            await websocket.send(arrows_json)
     except Exception as e:
         print(f"[WS] 初始化失败: {e}")
         return
 
-    with _clients_lock: _connected_clients.add(websocket)
+    with _clients_lock:
+        _connected_clients.add(websocket)
     print(f"[WS] 客户端已连接 在线: {len(_connected_clients)}")
 
     try:
         async for message in websocket:
             if isinstance(message, str):
                 _handle_ws_message(message)
-    except websockets.exceptions.ConnectionClosed: pass
+    except websockets.exceptions.ConnectionClosed:
+        pass
     finally:
-        with _clients_lock: _connected_clients.discard(websocket)
+        with _clients_lock:
+            _connected_clients.discard(websocket)
         print(f"[WS] 客户端断开 在线: {len(_connected_clients)}")
 
 async def _frame_broadcaster():
+    last_sent_seq = -1
+    last_sent_arrows_seq = -1
     while True:
-        await asyncio.sleep(1 / 30)
-        with _latest_frame_lock: frame = _latest_frame_bytes
-        if frame is None: continue
-        with _latest_arrows_lock: longpress_json = _latest_longpress_json
-        with _clients_lock: targets = list(_connected_clients)
-        if not targets: continue
-        with _latest_arrows_lock: arrows_json = _latest_arrows_json
+        await asyncio.sleep(1 / TARGET_RENDER_FPS)
+        with _latest_frame_lock:
+            frame = _latest_frame_bytes
+            frame_seq = _latest_frame_seq
+        if frame is None or frame_seq == last_sent_seq:
+            continue
+        with _clients_lock:
+            targets = list(_connected_clients)
+        if not targets:
+            continue
+        with _latest_arrows_lock:
+            longpress_json = _latest_longpress_json
+            arrows_json = _latest_arrows_json
+            arrows_seq = _latest_arrows_seq
+        arrows_changed = arrows_seq != last_sent_arrows_seq
         dead = []
         for ws in targets:
             try:
-                if longpress_json is not None: await ws.send(longpress_json)
+                if longpress_json is not None:
+                    await ws.send(longpress_json)
                 await ws.send(frame)
-                if arrows_json is not None: await ws.send(arrows_json)
-            except Exception: dead.append(ws)
+                if arrows_changed and arrows_json is not None:
+                    await ws.send(arrows_json)
+            except Exception:
+                dead.append(ws)
+        last_sent_seq = frame_seq
+        if arrows_changed:
+            last_sent_arrows_seq = arrows_seq
         if dead:
             with _clients_lock:
-                for ws in dead: _connected_clients.discard(ws)
+                for ws in dead:
+                    _connected_clients.discard(ws)
 
 async def _ws_server_main():
     async with websockets.serve(_ws_handler, WS_HOST, WS_PORT):
@@ -372,13 +437,18 @@ def copy_field(src: ti.template(), dst: ti.template()):
 @ti.kernel
 def _cg_dot_to_field(v1: ti.template(), v2: ti.template(), out: ti.template()):
     s = 0.0
-    for I in ti.grouped(v1): s += v1[I] * v2[I]
+    for I in ti.grouped(v1):
+        s += v1[I] * v2[I]
     out[()] = s
 
 @ti.kernel
 def _cg_compute_thresh(b: ti.template(), tol: ti.f32):
+    # Fixed-value cells are equations we enforce exactly and must not inflate the
+    # relative residual tolerance (especially in the Uniform Field scene).
     s = 0.0
-    for I in ti.grouped(b): s += b[I] * b[I]
+    for I in ti.grouped(b):
+        if fixed_A_mask[I] < 0.5:
+            s += b[I] * b[I]
     _cg_thresh[()] = s * tol * tol + 1e-10
 
 @ti.kernel
@@ -397,7 +467,8 @@ def compute_preconditioner():
 @ti.kernel
 def apply_fixed_A(x: ti.template()):
     for I in ti.grouped(x):
-        if fixed_A_mask[I] > 0.5: x[I] = fixed_A_value[I]
+        if fixed_A_mask[I] > 0.5:
+            x[I] = fixed_A_value[I]
 
 @ti.kernel
 def build_effective_rhs():
@@ -406,25 +477,62 @@ def build_effective_rhs():
             rhs_eff_field[i, j] = fixed_A_value[i, j]
         else:
             imc = sample_inv_mu(i, j)
-            wL  = harm(imc, sample_inv_mu(i-1, j)); wR  = harm(imc, sample_inv_mu(i+1, j))
-            wD  = harm(imc, sample_inv_mu(i, j-1)); wU  = harm(imc, sample_inv_mu(i, j+1))
+            wL  = harm(imc, sample_inv_mu(i-1, j))
+            wR  = harm(imc, sample_inv_mu(i+1, j))
+            wD  = harm(imc, sample_inv_mu(i, j-1))
+            wU  = harm(imc, sample_inv_mu(i, j+1))
             b = J_field[i, j]
-            if i - 1 >= 0 and fixed_A_mask[i-1, j] > 0.5: b += wL * fixed_A_value[i-1, j]
-            if i + 1 < sim_res_x and fixed_A_mask[i+1, j] > 0.5: b += wR * fixed_A_value[i+1, j]
-            if j - 1 >= 0 and fixed_A_mask[i, j-1] > 0.5: b += wD * fixed_A_value[i, j-1]
-            if j + 1 < sim_res_y and fixed_A_mask[i, j+1] > 0.5: b += wU * fixed_A_value[i, j+1]
+            if i - 1 >= 0 and fixed_A_mask[i-1, j] > 0.5:
+                b += wL * fixed_A_value[i-1, j]
+            if i + 1 < sim_res_x and fixed_A_mask[i+1, j] > 0.5:
+                b += wR * fixed_A_value[i+1, j]
+            if j - 1 >= 0 and fixed_A_mask[i, j-1] > 0.5:
+                b += wD * fixed_A_value[i, j-1]
+            if j + 1 < sim_res_y and fixed_A_mask[i, j+1] > 0.5:
+                b += wU * fixed_A_value[i, j+1]
             rhs_eff_field[i, j] = b
 
 @ti.kernel
 def apply_preconditioner(r: ti.template(), z: ti.template()):
-    for I in ti.grouped(r): z[I] = r[I] * precond_field[I]
+    for I in ti.grouped(r):
+        z[I] = r[I] * precond_field[I]
 
 @ti.kernel
-def _cg_update_xr_async(x: ti.template(), p: ti.template(), r: ti.template(), Ap: ti.template()):
-    alpha = _cg_rsold[()] / (_cg_pAp[()] + 1e-30)
-    for I in ti.grouped(x):
-        x[I] += alpha * p[I]
-        r[I] -= alpha * Ap[I]
+def _cg_apply_preconditioner_and_dot(
+    r: ti.template(), z: ti.template(), out: ti.template()
+):
+    s = 0.0
+    for I in ti.grouped(r):
+        value = r[I] * precond_field[I]
+        z[I] = value
+        s += r[I] * value
+    out[()] = s
+
+@ti.kernel
+def _cg_compute_Ap_and_dot(p: ti.template(), Ap: ti.template()):
+    s = 0.0
+    for i, j in p:
+        value = 0.0
+        if fixed_A_mask[i, j] > 0.5:
+            value = p[i, j]
+        else:
+            p_c = p[i, j]
+            p_L = sample_A_free(p, i-1, j)
+            p_R = sample_A_free(p, i+1, j)
+            p_D = sample_A_free(p, i, j-1)
+            p_U = sample_A_free(p, i, j+1)
+            imc = sample_inv_mu(i, j)
+            wL = harm(imc, sample_inv_mu(i-1, j))
+            wR = harm(imc, sample_inv_mu(i+1, j))
+            wD = harm(imc, sample_inv_mu(i, j-1))
+            wU = harm(imc, sample_inv_mu(i, j+1))
+            value = (
+                (wL + wR + wD + wU) * p_c
+                - (wL * p_L + wR * p_R + wD * p_D + wU * p_U)
+            )
+        Ap[i, j] = value
+        s += p[i, j] * value
+    _cg_pAp[()] = s
 
 @ti.kernel
 def _cg_prepare_alpha_checked():
@@ -443,19 +551,14 @@ def _cg_prepare_alpha_checked():
             _cg_status[()] = 1
 
 @ti.kernel
-def _cg_update_xr_checked(x: ti.template(), p: ti.template(), r: ti.template(), Ap: ti.template()):
+def _cg_update_xr_checked(
+    x: ti.template(), p: ti.template(), r: ti.template(), Ap: ti.template()
+):
     alpha = _cg_alpha[()]
     for I in ti.grouped(x):
         if _cg_status[()] == 0:
             x[I] += alpha * p[I]
             r[I] -= alpha * Ap[I]
-
-@ti.kernel
-def _cg_update_p_pcg(z: ti.template(), p: ti.template()):
-    beta = _cg_rsnew[()] / (_cg_rsold[()] + 1e-30)
-    _cg_rsold[()] = _cg_rsnew[()]
-    for I in ti.grouped(p):
-        p[I] = z[I] + beta * p[I]
 
 @ti.kernel
 def _cg_prepare_beta_checked():
@@ -484,55 +587,130 @@ def _cg_update_p_checked(z: ti.template(), p: ti.template()):
 @ti.kernel
 def _cg_compute_res2(r: ti.template()):
     s = 0.0
-    for I in ti.grouped(r): s += r[I] * r[I]
+    for I in ti.grouped(r):
+        s += r[I] * r[I]
     _cg_res2[()] = s
 
-def solve_poisson_pcg_safe(x_field, b_field, max_iters=100, tol=1e-4, verbose=False):
-    residual_check_interval = 5
+
+_pcg_active = False
+_pcg_converged = True
+_pcg_last_res2 = 0.0
+_pcg_last_thresh = 0.0
+_pcg_last_status = 0
+
+
+def _update_pcg_host_state():
+    global _pcg_active, _pcg_converged
+    global _pcg_last_res2, _pcg_last_thresh, _pcg_last_status
+
+    _pcg_last_res2 = float(_cg_res2[()])
+    _pcg_last_thresh = float(_cg_thresh[()])
+    _pcg_last_status = int(_cg_status[()])
+    finite = math.isfinite(_pcg_last_res2) and math.isfinite(_pcg_last_thresh)
+    _pcg_converged = (
+        _pcg_last_status == 0
+        and finite
+        and _pcg_last_res2 <= _pcg_last_thresh
+    )
+    _pcg_active = _pcg_last_status == 0 and finite and not _pcg_converged
+    return _pcg_converged
+
+
+def start_poisson_pcg(x_field, b_field, tol=1e-4):
+    """Initialize a PCG solve while preserving x_field as the warm start."""
+    global _pcg_active
+
     _cg_status[()] = 0
     compute_Ap(x_field, Ap_field)
     compute_r(x_field, r_field, b_field, Ap_field)
     _cg_compute_thresh(b_field, tol)
     _cg_compute_res2(r_field)
+    if _update_pcg_host_state():
+        return True
+    if not _pcg_active:
+        return False
 
-    res2 = float(_cg_res2[()])
-    thresh = float(_cg_thresh[()])
+    _cg_apply_preconditioner_and_dot(r_field, z_field, _cg_rsold)
+    copy_field(z_field, p_field)
+    return False
 
-    if not math.isfinite(res2) or res2 <= thresh:
+
+def advance_poisson_pcg(x_field, max_iters=12, residual_check_interval=6):
+    """Advance the current PCG state without restarting the conjugate direction."""
+    global _pcg_active
+
+    if not _pcg_active or max_iters <= 0:
         return 0
 
-    apply_preconditioner(r_field, z_field)
-    copy_field(z_field, p_field)
-    _cg_dot_to_field(r_field, z_field, _cg_rsold)
-
+    executed = 0
+    check_every = max(1, int(residual_check_interval))
     for it in range(max_iters):
-        compute_Ap(p_field, Ap_field)
-        _cg_dot_to_field(p_field, Ap_field, _cg_pAp)
+        _cg_compute_Ap_and_dot(p_field, Ap_field)
         _cg_prepare_alpha_checked()
         _cg_update_xr_checked(x_field, p_field, r_field, Ap_field)
-        _cg_compute_res2(r_field)
+        executed = it + 1
 
-        should_check = ((it + 1) % residual_check_interval == 0) or (it + 1 == max_iters)
+        should_check = (executed % check_every == 0) or (executed == max_iters)
         if should_check:
-            if int(_cg_status[()]) != 0:
-                return it
-            res2 = float(_cg_res2[()])
-            if not math.isfinite(res2) or res2 <= thresh:
-                return it + 1
+            _cg_compute_res2(r_field)
+            if _update_pcg_host_state() or not _pcg_active:
+                break
 
-        apply_preconditioner(r_field, z_field)
-        _cg_dot_to_field(r_field, z_field, _cg_rsnew)
+        _cg_apply_preconditioner_and_dot(r_field, z_field, _cg_rsnew)
         _cg_prepare_beta_checked()
         _cg_update_p_checked(z_field, p_field)
-    return max_iters
 
-def solve_current_system(max_iters=100, tol=1e-3, verbose=False):
-    build_effective_rhs()
+    return executed
+
+
+def solve_poisson_pcg_safe(x_field, b_field, max_iters=100, tol=1e-4, verbose=False):
+    start_poisson_pcg(x_field, b_field, tol=tol)
+    return advance_poisson_pcg(x_field, max_iters=max_iters)
+
+
+def start_current_system(tol=1e-3, rebuild_rhs=True):
+    if rebuild_rhs:
+        build_effective_rhs()
     apply_fixed_A(A_field)
-    iters = solve_poisson_pcg_safe(A_field, rhs_eff_field, max_iters=max_iters, tol=tol, verbose=verbose)
-    print(f"[Solver] 迭代完成 iters={iters} res={math.sqrt(float(_cg_res2[()])):.6e} status={_cg_status[()]}")
+    return start_poisson_pcg(A_field, rhs_eff_field, tol=tol)
+
+
+def continue_current_system(max_iters=12):
+    iters = advance_poisson_pcg(A_field, max_iters=max_iters)
     apply_fixed_A(A_field)
     return iters
+
+
+def current_solver_active():
+    return _pcg_active
+
+
+def current_solver_converged():
+    return _pcg_converged
+
+
+def current_solver_metrics():
+    return {
+        "active": _pcg_active,
+        "converged": _pcg_converged,
+        "residual": math.sqrt(max(_pcg_last_res2, 0.0)),
+        "threshold": math.sqrt(max(_pcg_last_thresh, 0.0)),
+        "status": _pcg_last_status,
+    }
+
+
+def solve_current_system(max_iters=100, tol=1e-3, verbose=False):
+    start_current_system(tol=tol, rebuild_rhs=True)
+    iters = continue_current_system(max_iters=max_iters)
+    if verbose:
+        metrics = current_solver_metrics()
+        print(
+            f"[Solver] iters={iters} residual={metrics['residual']:.6e} "
+            f"target={metrics['threshold']:.6e} status={metrics['status']} "
+            f"converged={metrics['converged']}"
+        )
+    return iters
+
 
 @ti.kernel
 def field_sum(f: ti.template()) -> ti.f32:
@@ -630,31 +808,128 @@ def update_particles_fast():
         p_vel[i]=tv; p_pos[i]+=tv*dt
 
 @ti.kernel
+def clear_filing_overlay():
+    for I in ti.grouped(filing_outer_overlay):
+        filing_outer_overlay[I] = 0.0
+        filing_inner_overlay[I] = 0.0
+
+
+@ti.kernel
+def rasterize_filing_overlay(B: ti.template()):
+    for i in p_pos:
+        pos = p_pos[i]
+        ix = ti.max(1, ti.min(ti.cast(pos.x, ti.i32), sim_res_x - 2))
+        iy = ti.max(1, ti.min(ti.cast(pos.y, ti.i32), sim_res_y - 2))
+        Bv = B[ix, iy]
+        Bm = Bv.norm()
+        outside = (
+            pos.x < offset_x
+            or pos.x > offset_x + disp_res_x
+            or pos.y < offset_y
+            or pos.y > offset_y + disp_res_y
+        )
+        if not outside and Bm >= 0.1:
+            direction = Bv / (Bm + 1e-5)
+            grain_scale = 0.75 + 0.25 * p_mass[i]
+            filing_length = ti.max(
+                2.0, ti.min(Bm * 2.2 + 2.0, 9.0)
+            ) * grain_scale
+            center_x = (pos.x - offset_x) / disp_res_x
+            center_y = (pos.y - offset_y) / disp_res_y
+            half_dx = direction.x * filing_length / disp_res_x * 0.5
+            half_dy = direction.y * filing_length / disp_res_y * 0.5
+            x0 = (center_x - half_dx) * (disp_res_x - 1)
+            y0 = (center_y - half_dy) * (disp_res_y - 1)
+            x1 = (center_x + half_dx) * (disp_res_x - 1)
+            y1 = (center_y + half_dy) * (disp_res_y - 1)
+            line_dx = x1 - x0
+            line_dy = y1 - y0
+            pixel_length = ti.sqrt(line_dx * line_dx + line_dy * line_dy)
+            steps = ti.max(
+                1,
+                ti.min(
+                    FILING_RASTER_STEPS - 1,
+                    ti.cast(ti.ceil(pixel_length), ti.i32),
+                ),
+            )
+            shade = ti.cast(150 + (i * 29) % 66, ti.f32) / 255.0
+            normal_x = -line_dy / (pixel_length + 1e-5)
+            normal_y = line_dx / (pixel_length + 1e-5)
+            normal_sign = 1.0
+            if i % 2 != 0:
+                normal_sign = -1.0
+
+            for sample in ti.static(range(FILING_RASTER_STEPS)):
+                if sample <= steps:
+                    t = ti.cast(sample, ti.f32) / ti.cast(steps, ti.f32)
+                    px = ti.cast(ti.round(x0 + line_dx * t), ti.i32)
+                    py = ti.cast(ti.round(y0 + line_dy * t), ti.i32)
+                    if 0 <= px < disp_res_x and 0 <= py < disp_res_y:
+                        ti.atomic_max(filing_inner_overlay[px, py], shade)
+                    for side_index in ti.static(range(2)):
+                        side = ti.cast(side_index, ti.f32) * normal_sign
+                        qx = px + ti.cast(ti.round(normal_x * side), ti.i32)
+                        qy = py + ti.cast(ti.round(normal_y * side), ti.i32)
+                        if 0 <= qx < disp_res_x and 0 <= qy < disp_res_y:
+                            ti.atomic_max(filing_outer_overlay[qx, qy], 1.0)
+
+            if i % 3 == 0:
+                for marker in ti.static(range(3)):
+                    t = ti.cast(marker, ti.f32) * 0.5
+                    px = ti.cast(ti.round(x0 + line_dx * t), ti.i32)
+                    py = ti.cast(ti.round(y0 + line_dy * t), ti.i32)
+                    if 0 <= px < disp_res_x and 0 <= py < disp_res_y:
+                        ti.atomic_max(
+                            filing_inner_overlay[px, py], 220.0 / 255.0
+                        )
+
+
+@ti.kernel
+def blend_filing_overlay(colorf: ti.template()):
+    for di, dj in colorf:
+        outer = filing_outer_overlay[di, dj]
+        inner = filing_inner_overlay[di, dj]
+        if outer > 0.0:
+            colorf[di, dj] = ti.Vector([
+                68.0 / 255.0,
+                74.0 / 255.0,
+                76.0 / 255.0,
+            ])
+        if inner > 0.0:
+            colorf[di, dj] = ti.Vector([
+                inner,
+                ti.min(inner + 4.0 / 255.0, 1.0),
+                ti.min(inner + 5.0 / 255.0, 1.0),
+            ])
+
+
+def render_filings_to_color(B, colorf):
+    clear_filing_overlay()
+    rasterize_filing_overlay(B)
+    blend_filing_overlay(colorf)
+
+
+@ti.kernel
 def sample_direction_arrows(B: ti.template()):
-    for idx in direction_arrow_start:
+    for idx in direction_arrow_dir:
         col = idx // DIRECTION_ARROW_ROWS
         row = idx - col * DIRECTION_ARROW_ROWS
         di = DIRECTION_ARROW_START + col * DIRECTION_ARROW_STEP
         dj = DIRECTION_ARROW_START + row * DIRECTION_ARROW_STEP
-        ix = di + offset_x
-        iy = dj + offset_y
-        Bv = B[ix, iy]
+        Bv = B[di + offset_x, dj + offset_y]
         mag = Bv.norm()
         direction = ti.Vector([0.0, 0.0])
         if mag > 1e-12:
             direction = Bv / mag
-        direction_arrow_start[idx] = ti.Vector([
-            ti.cast(di, ti.f32) / ti.cast(disp_res_x, ti.f32),
-            ti.cast(dj, ti.f32) / ti.cast(disp_res_y, ti.f32),
-        ])
         direction_arrow_dir[idx] = ti.Vector([
             direction.x / ti.cast(disp_res_x, ti.f32) * STREAMLINE_LENGTH,
             direction.y / ti.cast(disp_res_y, ti.f32) * STREAMLINE_LENGTH,
         ])
 
+
 def calculate_streamline(B_field):
     sample_direction_arrows(B_field)
-    return direction_arrow_dir.to_numpy(), direction_arrow_start.to_numpy()
+    return direction_arrow_dir.to_numpy(), _direction_arrow_starts_np
 
 @ti.func
 def _phase(v: ti.f32) -> ti.f32:
@@ -697,6 +972,134 @@ def compute_and_render(A: ti.template(), colorf: ti.template(), mu_f: ti.templat
             pixel = pixel * (1.0 - red_vis) + ti.Vector([1.0, -0.75, -0.55]) * red_vis
         colorf[di, dj] = pixel
 
+def initialize_render_lut():
+    global _viridis_initialized
+    if _viridis_initialized:
+        return
+    lut = plt.cm.viridis(np.linspace(0.0, 1.0, 256))[:, :3].astype(np.float32)
+    viridis_lut.from_numpy(lut)
+    _viridis_initialized = True
+
+
+@ti.func
+def _viridis_color(value: ti.f32):
+    t = ti.min(1.0, ti.max(0.0, value))
+    idx = ti.min(255, ti.cast(t * 256.0, ti.i32))
+    return viridis_lut[idx]
+
+
+@ti.kernel
+def compose_magnetic_frame(
+    A: ti.template(),
+    B: ti.template(),
+    colorf: ti.template(),
+    mu_f: ti.template(),
+    highlight_A_field: ti.template(),
+    highlight_count: ti.i32,
+    show_intensity: ti.i32,
+    show_fieldline: ti.i32,
+):
+    """Compose heatmap and field lines on the GPU with one host transfer."""
+    gf = line_freq_field[()]
+    gt = line_thickness_field[()]
+    for di, dj in colorf:
+        i = di + offset_x
+        j = dj + offset_y
+
+        heat = ti.Vector([0.0, 0.0, 0.0])
+        if show_intensity != 0:
+            be = B[i, j].norm() * 0.02
+            heat = _viridis_color(be / (be + 1.0))
+
+        overlay = ti.Vector([0.0, 0.0, 0.0])
+        if show_fieldline != 0:
+            il = ti.max(i-1, 0)
+            ir = ti.min(i+1, sim_res_x-1)
+            jd = ti.max(j-1, 0)
+            ju = ti.min(j+1, sim_res_y-1)
+            phase_c = _phase(A[i, j])
+            pl = _phase(A[il, j])
+            pr = _phase(A[ir, j])
+            pd = _phase(A[i, jd])
+            pu = _phase(A[i, ju])
+            dfx = (pr - pl) * 0.5
+            dfy = (pu - pd) * 0.5
+            gn = ti.sqrt(dfx**2 + dfy**2) + 1e-7
+            lpp = 1.0 / gn
+            frac = phase_c - ti.floor(phase_c)
+            dtc = ti.min(frac, 1.0 - frac)
+            is_line = 1.0 - ti.math.smoothstep(gt - 0.5, gt + 0.5, dtc / gn)
+            coverage = ti.min((gt * 1.5) / lpp, 1.0)
+            blend = 1.0 - ti.math.smoothstep(1.5, 3.0, lpp)
+            bg_vis = is_line * (1.0 - blend) + coverage * blend
+            is_entity = mu_f[i, j] > 1.1
+            is_magnet_body = mu_base_field[i, j] > 1.1
+
+            bg_col = (
+                ti.Vector([0.10, 0.10, 0.10])
+                if is_entity
+                else ti.Vector([0.0, 0.0, 0.0])
+            )
+            line_col = (
+                ti.Vector([0.55, 0.55, 0.55])
+                if is_magnet_body
+                else ti.Vector([1.0, 1.0, 1.0])
+            )
+            overlay = bg_col * (1.0 - bg_vis) + line_col * bg_vis
+
+            max_rv = 0.0
+            mac = A[i, j]
+            for k in range(highlight_count):
+                dp = (ti.abs(mac - highlight_A_field[k]) * gf) / gn
+                pt = 2.5
+                max_rv = ti.max(
+                    max_rv,
+                    1.0 - ti.math.smoothstep(pt*0.5-0.5, pt*0.5+0.5, dp),
+                )
+            red_vis = ti.min(max_rv * bg_vis * 1.6, 1.0)
+            if red_vis > 0.0:
+                overlay = (
+                    overlay * (1.0 - red_vis)
+                    + ti.Vector([1.0, -0.75, -0.55]) * red_vis
+                )
+
+        composed = heat + overlay
+        for channel in ti.static(range(3)):
+            composed[channel] = ti.min(1.0, ti.max(0.0, composed[channel]))
+        colorf[di, dj] = composed
+
+def warm_optional_visualization_kernels(highlight_field, highlight_count):
+    """Compile optional Direction/Filings kernels before their first toggle."""
+    compute_B_field(A_field, B_field)
+    compose_magnetic_frame(
+        A_field,
+        B_field,
+        color_field,
+        mu_field,
+        highlight_field,
+        highlight_count,
+        1,
+        1,
+    )
+    init_particles()
+    compute_density_grid()
+    update_particles_fast()
+    render_filings_to_color(B_field, color_field)
+    # Restore the normal frame after the filing overlay warm-up.
+    compose_magnetic_frame(
+        A_field,
+        B_field,
+        color_field,
+        mu_field,
+        highlight_field,
+        highlight_count,
+        1,
+        1,
+    )
+    sample_direction_arrows(B_field)
+    direction_arrow_dir.to_numpy()
+    color_field.to_numpy()
+
 def update_auto_highlights(highlight_field, highlight_count):
     crop = A_field.to_numpy()[offset_x:offset_x+disp_res_x, offset_y:offset_y+disp_res_y]
     phase = crop * float(line_freq_field[()])
@@ -704,7 +1107,7 @@ def update_auto_highlights(highlight_field, highlight_count):
     if not finite.any() or float(np.ptp(phase[finite])) < 1e-8:
         highlight_field.fill(0.0)
         highlight_count[()] = 0
-        return
+        return 0
 
     nearest = np.rint(phase[finite]).astype(np.int32)
     distance = np.abs(phase[finite] - nearest)
@@ -719,6 +1122,7 @@ def update_auto_highlights(highlight_field, highlight_count):
     levels = (selected_ids.astype(np.float32) / float(line_freq_field[()])).astype(np.float32)
     highlight_field.from_numpy(levels)
     highlight_count[()] = 3
+    return 3
 
 
 # ──────────────────────────────────────────────
@@ -868,14 +1272,16 @@ def set_up_scene(n):
 #  主循环
 # ──────────────────────────────────────────────
 def main(web_ui_only=False, max_frames=None, stats_json=None, initial_direction=False):
-    global _pending_command, _latest_frame_bytes, _latest_arrows_json, _latest_longpress_json
+    global _pending_command, _latest_frame_bytes, _latest_frame_seq
+    global _latest_arrows_json, _latest_longpress_json
 
-    vis_magnetic_intensity       = True
-    vis_magnetic_field_line      = True
+    vis_magnetic_intensity = True
+    vis_magnetic_field_line = True
     vis_magnetic_field_direction = initial_direction
-    vis_iron_filings_method      = False
-    particle_initialized         = False
+    vis_iron_filings_method = False
+    particle_initialized = False
 
+    initialize_render_lut()
     highlight_A_field_gpu = ti.field(ti.f32, shape=3)
     highlight_count_gpu = ti.field(ti.i32, shape=())
     highlight_count_gpu[()] = 0
@@ -887,21 +1293,34 @@ def main(web_ui_only=False, max_frames=None, stats_json=None, initial_direction=
     update_inv_mu()
     compute_preconditioner()
     solve_current_system(max_iters=2000, tol=1e-6, verbose=True)
-    update_auto_highlights(highlight_A_field_gpu, highlight_count_gpu)
+    highlight_count_value = update_auto_highlights(
+        highlight_A_field_gpu, highlight_count_gpu
+    )
+    # Compile optional Direction and Iron Filings paths before their first toggle.
+    warm_optional_visualization_kernels(
+        highlight_A_field_gpu, highlight_count_value
+    )
     print("Warm up done.")
 
     input_material = interactive_materials["iron"]
-    cmap = plt.cm.viridis
-    gui = None if web_ui_only else ti.GUI("Magnetic Field Simulation", (disp_res_x, disp_res_y))
+    gui = None if web_ui_only else ti.GUI(
+        "Magnetic Field Simulation", (disp_res_x, disp_res_y)
+    )
 
     threading.Thread(target=read_shared_memory, daemon=True).start()
     threading.Thread(target=_ws_thread_func, daemon=True).start()
 
-    last_mask_sum  = -1.0
     last_input_mask.fill(0.0)
     first_mask_frame = True
-    last_frame_enc = time.time()
-    _ws_filings_start = _ws_filings_end = None
+    accepted_lowres_mask = None
+    last_frame_enc = time.perf_counter()
+    cached_arrow_dirs = cached_arrow_starts = None
+    cached_arrow_quantized = None
+    last_direction_update = -1e9
+    arrows_dirty = True
+    field_dirty = False
+    b_initialized = True
+    highlights_pending = current_solver_active()
     frame_count = 0
     stats = {
         "mode": "web_ui" if web_ui_only else "local_gui_plus_websocket",
@@ -911,138 +1330,234 @@ def main(web_ui_only=False, max_frames=None, stats_json=None, initial_direction=
         "gui_ms": [],
         "encode_ms": [],
         "arrows_ms": [],
+        "filings_ms": [],
         "encoded_frames": 0,
     }
+    run_start = time.perf_counter()
+
+    def start_scene_transition(scene_number):
+        set_up_scene(scene_number)
+        update_inv_mu()
+        compute_preconditioner()
+        start_current_system(tol=1e-6, rebuild_rhs=True)
+        return continue_current_system(max_iters=SCENE_CHANGE_SOLVE_ITERS)
 
     while web_ui_only or gui.running:
         frame_start = time.perf_counter()
 
-        # ── ① 消费 WebSocket 控制指令 ──
+        # ── ① Consume the newest WebSocket control command ──
         with _cmd_lock:
             cmd = _pending_command
             _pending_command = None
 
         if cmd:
-            action = cmd.get("action"); value = cmd.get("value")
+            action = cmd.get("action")
+            value = cmd.get("value")
             if action == "set_scene" and isinstance(value, int) and 0 <= value < 7:
                 initial_scene_number = value
-                set_up_scene(initial_scene_number)
-                update_inv_mu()
-                compute_preconditioner()
-                solve_current_system(max_iters=2000, tol=1e-6, verbose=True)
-                update_auto_highlights(highlight_A_field_gpu, highlight_count_gpu)
+                start_scene_transition(initial_scene_number)
+                highlight_count_value = update_auto_highlights(
+                    highlight_A_field_gpu, highlight_count_gpu
+                )
+                highlights_pending = current_solver_active()
+                field_dirty = True
+                arrows_dirty = True
                 particle_initialized = False
-                print(f"[WS] 切换场景 → {SCENE_NAMES[initial_scene_number]}")
+                last_input_mask.fill(0.0)
+                first_mask_frame = True
+                print(f"[WS] Scene -> {SCENE_NAMES[initial_scene_number]}")
             elif action == "set_material" and value in interactive_materials:
                 input_material = interactive_materials[value]
-                update_materials_with_mask(input_mask, mu_field, sigma_field, initial_mask,
-                                           input_material["mu"], input_material["sigma"])
+                update_materials_with_mask(
+                    input_mask,
+                    mu_field,
+                    sigma_field,
+                    initial_mask,
+                    input_material["mu"],
+                    input_material["sigma"],
+                )
                 update_inv_mu()
                 compute_preconditioner()
-                solve_current_system(max_iters=400, tol=1e-3, verbose=True)
-                update_auto_highlights(highlight_A_field_gpu, highlight_count_gpu)
-                last_mask_sum = -1.0   
-                print(f"[WS] 切换材质 → {value}")
-            elif action == "toggle_intensity":   vis_magnetic_intensity      = not vis_magnetic_intensity
-            elif action == "toggle_fieldline":   vis_magnetic_field_line     = not vis_magnetic_field_line
-            elif action == "toggle_direction":   vis_magnetic_field_direction = not vis_magnetic_field_direction
-            elif action == "toggle_filings":     vis_iron_filings_method     = not vis_iron_filings_method
-            elif action == "reset":
-                set_up_scene(initial_scene_number) 
-                update_inv_mu()
-                compute_preconditioner()
-                solve_current_system(max_iters=2000, tol=1e-6, verbose=True)
-                update_auto_highlights(highlight_A_field_gpu, highlight_count_gpu)
+                start_current_system(tol=INTERACTIVE_SOLVE_TOL, rebuild_rhs=True)
+                continue_current_system(max_iters=INTERACTIVE_SOLVE_ITERS)
+                highlights_pending = True
+                field_dirty = True
+                arrows_dirty = True
+                print(f"[WS] Material -> {value}")
+            elif action == "toggle_intensity":
+                vis_magnetic_intensity = not vis_magnetic_intensity
+            elif action == "toggle_fieldline":
+                vis_magnetic_field_line = not vis_magnetic_field_line
+            elif action == "toggle_direction":
+                vis_magnetic_field_direction = not vis_magnetic_field_direction
+                arrows_dirty = True
+            elif action == "toggle_filings":
+                vis_iron_filings_method = not vis_iron_filings_method
                 particle_initialized = False
-                print("[WS] 场景已重置")
-
+            elif action == "reset":
+                start_scene_transition(initial_scene_number)
+                highlight_count_value = update_auto_highlights(
+                    highlight_A_field_gpu, highlight_count_gpu
+                )
+                highlights_pending = current_solver_active()
+                field_dirty = True
+                arrows_dirty = True
+                particle_initialized = False
+                last_input_mask.fill(0.0)
+                first_mask_frame = True
+                print("[WS] Scene reset")
             elif action == "set_freeze_input" and not bool(value):
                 release_frozen_input()
-        # ── ② 键盘事件 ──
+
+        # ── ② Long-press state and local keyboard controls ──
         with shared_mask_lock:
             lp_progress = freeze_progress
             lp_frozen = freeze_input
             lp_touching = has_touch_current
         with _latest_arrows_lock:
-            _latest_longpress_json = json.dumps({
-                "type": "longpress", "progress": lp_progress,
-                "frozen": lp_frozen, "has_touch": lp_touching,
-            })
+            _latest_longpress_json = json.dumps(
+                {
+                    "type": "longpress",
+                    "progress": lp_progress,
+                    "frozen": lp_frozen,
+                    "has_touch": lp_touching,
+                },
+                separators=(",", ":"),
+            )
+
         if gui is not None and gui.get_event(ti.GUI.PRESS):
             e = gui.event
-            if e.key == ti.GUI.ESCAPE: break
+            if e.key == ti.GUI.ESCAPE:
+                break
             elif e.key == "r":
-                set_up_scene(initial_scene_number)
-                update_inv_mu()
-                compute_preconditioner()
-                solve_current_system(max_iters=2000, tol=1e-6, verbose=True)
-                compute_B_field(A_field, B_field)
-                update_auto_highlights(highlight_A_field_gpu, highlight_count_gpu)
+                start_scene_transition(initial_scene_number)
+                highlight_count_value = update_auto_highlights(
+                    highlight_A_field_gpu, highlight_count_gpu
+                )
+                highlights_pending = current_solver_active()
+                field_dirty = True
+                arrows_dirty = True
                 particle_initialized = False
+                last_input_mask.fill(0.0)
+                first_mask_frame = True
             elif e.key in [ti.GUI.LEFT, ti.GUI.RIGHT]:
-                initial_scene_number = (initial_scene_number + (1 if e.key==ti.GUI.RIGHT else -1)) % 7
-                set_up_scene(initial_scene_number)
-                update_inv_mu()
-                compute_preconditioner()
-                solve_current_system(max_iters=2000, tol=1e-6, verbose=True)
-                update_auto_highlights(highlight_A_field_gpu, highlight_count_gpu)
+                delta = 1 if e.key == ti.GUI.RIGHT else -1
+                initial_scene_number = (initial_scene_number + delta) % 7
+                start_scene_transition(initial_scene_number)
+                highlight_count_value = update_auto_highlights(
+                    highlight_A_field_gpu, highlight_count_gpu
+                )
+                highlights_pending = current_solver_active()
+                field_dirty = True
+                arrows_dirty = True
                 particle_initialized = False
-            elif e.key == "i": vis_magnetic_intensity      = not vis_magnetic_intensity
-            elif e.key == "l": vis_magnetic_field_line     = not vis_magnetic_field_line
-            elif e.key == "d": vis_magnetic_field_direction = not vis_magnetic_field_direction
-            elif e.key == "f": vis_iron_filings_method     = not vis_iron_filings_method
+                last_input_mask.fill(0.0)
+                first_mask_frame = True
+            elif e.key == "i":
+                vis_magnetic_intensity = not vis_magnetic_intensity
+            elif e.key == "l":
+                vis_magnetic_field_line = not vis_magnetic_field_line
+            elif e.key == "d":
+                vis_magnetic_field_direction = not vis_magnetic_field_direction
+                arrows_dirty = True
+            elif e.key == "f":
+                vis_iron_filings_method = not vis_iron_filings_method
+                particle_initialized = False
 
-        # ── ④ 内存掩码输入 + 仿真步进 ──
+        # ── ③ Input update and time-sliced PCG solve ──
         sim_start = time.perf_counter()
         got_mask = process_mask_update(threshold=160.0)
         mask_changed = False
-        current_mask_sum = last_mask_sum
-        if got_mask:
-            current_mask_sum = field_sum(input_mask)
-            mask_diff = mask_l1_diff(input_mask, last_input_mask)
-
-            MASK_DIFF_THRESH = 100.0
-            mask_changed = first_mask_frame or (mask_diff > MASK_DIFF_THRESH)
+        if got_mask and last_lowres_mask_np is not None:
+            if accepted_lowres_mask is None:
+                changed_cells = int(np.count_nonzero(last_lowres_mask_np))
+            else:
+                changed_cells = int(
+                    np.count_nonzero(last_lowres_mask_np != accepted_lowres_mask)
+                )
+            mask_changed = (
+                first_mask_frame or changed_cells > LOWRES_MASK_DIFF_THRESH
+            )
 
         if mask_changed:
-            update_materials_with_mask(input_mask, mu_field, sigma_field, initial_mask,
-                                       input_material["mu"], input_material["sigma"])
+            update_materials_with_mask(
+                input_mask,
+                mu_field,
+                sigma_field,
+                initial_mask,
+                input_material["mu"],
+                input_material["sigma"],
+            )
             update_inv_mu()
             compute_preconditioner()
-            solve_current_system(max_iters=150, tol=1e-3, verbose=True)
+            start_current_system(tol=INTERACTIVE_SOLVE_TOL, rebuild_rhs=True)
+            continue_current_system(max_iters=INTERACTIVE_SOLVE_ITERS)
             copy_mask(input_mask, last_input_mask)
-            last_mask_sum = current_mask_sum
+            accepted_lowres_mask = last_lowres_mask_np.copy()
             first_mask_frame = False
-        else:
-            solve_current_system(max_iters=50, tol=1e-3, verbose=False)
+            highlights_pending = True
+            field_dirty = True
+            arrows_dirty = True
+        elif current_solver_active():
+            iters = continue_current_system(max_iters=SETTLE_SOLVE_ITERS)
+            if iters > 0:
+                field_dirty = True
+                arrows_dirty = True
 
-        compute_B_field(A_field, B_field)
+        if highlights_pending and not current_solver_active():
+            highlight_count_value = update_auto_highlights(
+                highlight_A_field_gpu, highlight_count_gpu
+            )
+            highlights_pending = False
         stats["sim_ms"].append((time.perf_counter() - sim_start) * 1000.0)
 
-        # ── ⑤ 渲染合成 ──
-        now = time.time()
-        should_encode_frame = now - last_frame_enc >= 1 / 30
+        # ── ④ Render only at display cadence; B is cached until A changes ──
+        now = time.perf_counter()
+        should_encode_frame = now - last_frame_enc >= 1 / TARGET_RENDER_FPS
         should_render_frame = gui is not None or should_encode_frame
 
         compose_start = time.perf_counter()
         crop_img = None
+        filings_elapsed_ms = 0.0
+        filings_start = None
         if should_render_frame:
-            if vis_magnetic_intensity:
-                compute_magnetic_intensity(B_field, magnetic_intensity_field)
-                be = magnetic_intensity_field.to_numpy() * 0.02
-                heatmap_layer = cmap(be / (be + 1.0))[:, :, :3]
-            else:
-                heatmap_layer = np.zeros((disp_res_x, disp_res_y, 3), dtype=np.float32)
+            if field_dirty or not b_initialized:
+                compute_B_field(A_field, B_field)
+                field_dirty = False
+                b_initialized = True
+                arrows_dirty = True
 
-            if vis_magnetic_field_line:
-                compute_and_render(A_field, color_field, mu_field,
-                                   highlight_A_field_gpu, highlight_count_gpu[()])
-                overlay_layer = color_field.to_numpy()
-            else:
-                overlay_layer = np.zeros((disp_res_x, disp_res_y, 3), dtype=np.float32)
+            compose_magnetic_frame(
+                A_field,
+                B_field,
+                color_field,
+                mu_field,
+                highlight_A_field_gpu,
+                highlight_count_value,
+                int(vis_magnetic_intensity),
+                int(vis_magnetic_field_line),
+            )
 
-            crop_img = np.clip(heatmap_layer + overlay_layer, 0.0, 1.0)
+            if vis_iron_filings_method:
+                filings_start = time.perf_counter()
+                if not particle_initialized:
+                    init_particles()
+                    for _ in range(10):
+                        compute_density_grid()
+                        update_particles_fast()
+                    particle_initialized = True
+                else:
+                    compute_density_grid()
+                    update_particles_fast()
+                render_filings_to_color(B_field, color_field)
+
+            crop_img = color_field.to_numpy()
+            if filings_start is not None:
+                filings_elapsed_ms = (
+                    time.perf_counter() - filings_start
+                ) * 1000.0
         stats["compose_ms"].append((time.perf_counter() - compose_start) * 1000.0)
+        stats["filings_ms"].append(filings_elapsed_ms)
 
         gui_start = time.perf_counter()
         if gui is not None and crop_img is not None:
@@ -1050,66 +1565,79 @@ def main(web_ui_only=False, max_frames=None, stats_json=None, initial_direction=
 
         arrows_start = time.perf_counter()
         if should_render_frame and vis_magnetic_field_direction:
-            dirs, starts = calculate_streamline(B_field)
-            if gui is not None:
-                gui.arrows(orig=starts, direction=dirs, radius=2, color=0xFFFFFF)
-            flat = []
-            for (ox, oy), (dx, dy) in zip(starts, dirs):
-                flat.extend([round(float(ox),4), round(float(oy),4),
-                             round(float(dx),4), round(float(dy),4)])
-            with _latest_arrows_lock: _latest_arrows_json = json.dumps({"type":"arrows","data":flat})
+            update_due = (
+                now - last_direction_update >= 1 / DIRECTION_UPDATE_FPS
+            )
+            if (
+                (arrows_dirty and update_due)
+                or cached_arrow_dirs is None
+                or cached_arrow_quantized is None
+            ):
+                cached_arrow_dirs, cached_arrow_starts = calculate_streamline(B_field)
+                arrow_rows = np.column_stack(
+                    (cached_arrow_starts, cached_arrow_dirs)
+                )
+                quantized = np.rint(
+                    arrow_rows * DIRECTION_QUANTIZATION
+                ).astype(np.int16)
+                if (
+                    cached_arrow_quantized is None
+                    or not np.array_equal(quantized, cached_arrow_quantized)
+                ):
+                    flat = quantized.astype(np.int32).reshape(-1).tolist()
+                    _set_latest_arrows_json(
+                        json.dumps(
+                            {
+                                "type": "arrows",
+                                "scale": DIRECTION_QUANTIZATION,
+                                "data": flat,
+                            },
+                            separators=(",", ":"),
+                        )
+                    )
+                    cached_arrow_quantized = quantized
+                last_direction_update = now
+                arrows_dirty = False
+            if gui is not None and cached_arrow_dirs is not None:
+                gui.arrows(
+                    orig=cached_arrow_starts,
+                    direction=cached_arrow_dirs,
+                    radius=2,
+                    color=0xFFFFFF,
+                )
         elif should_render_frame:
-            with _latest_arrows_lock: _latest_arrows_json = json.dumps({"type":"arrows","data":[]})
+            _set_latest_arrows_json('{"type":"arrows","data":[]}')
+            cached_arrow_quantized = None
         stats["arrows_ms"].append((time.perf_counter() - arrows_start) * 1000.0)
-
-        if should_render_frame and vis_iron_filings_method:
-            if not particle_initialized:
-                init_particles()
-                for _ in range(10): compute_density_grid(); update_particles_fast()
-                particle_initialized = True
-            else:
-                compute_density_grid(); update_particles_fast()
-            prepare_particle_lines()
-            _ws_filings_start = p_start.to_numpy()
-            _ws_filings_end   = p_end.to_numpy()
-            if gui is not None:
-                gui.lines(begin=_ws_filings_start, end=_ws_filings_end, radius=0.7, color=0xB8C0C2)
-        elif should_render_frame:
-            _ws_filings_start = _ws_filings_end = None
 
         if gui is not None:
             gui.show()
         stats["gui_ms"].append((time.perf_counter() - gui_start) * 1000.0)
 
-        # ── ⑥ 编码 JPEG → WebSocket 广播 ──
+        # ── ⑤ Encode the already composited RGB frame ──
         encode_ms = 0.0
         if should_encode_frame and crop_img is not None:
             encode_start = time.perf_counter()
             img_u8 = (crop_img * 255).clip(0, 255).astype(np.uint8)
-            img_u8 = np.flipud(np.transpose(img_u8, (1, 0, 2)))
+            img_u8 = np.ascontiguousarray(
+                np.flipud(np.transpose(img_u8, (1, 0, 2)))
+            )
+            bgr = cv2.cvtColor(img_u8, cv2.COLOR_RGB2BGR)
+            ok, encoded = cv2.imencode(
+                ".jpg",
+                bgr,
+                [int(cv2.IMWRITE_JPEG_QUALITY), 85],
+            )
+            if ok:
+                frame_bytes = encoded.tobytes()
+            else:
+                buf = io.BytesIO()
+                Image.fromarray(img_u8).save(buf, format="JPEG", quality=85)
+                frame_bytes = buf.getvalue()
 
-            if _ws_filings_start is not None:
-                pil_img = Image.fromarray(img_u8)
-                draw    = ImageDraw.Draw(pil_img)
-                IW, IH  = pil_img.size  
-
-                def n2p(nx, ny): return int(nx * IW), int((1.0 - ny) * IH)
-
-                for idx, ((x0n, y0n), (x1n, y1n)) in enumerate(zip(_ws_filings_start, _ws_filings_end)):
-                    if x0n < 0: continue
-                    p0 = n2p(x0n, y0n)
-                    p1 = n2p(x1n, y1n)
-                    shade = 150 + (idx * 29) % 66
-                    draw.line([p0, p1], fill=(68, 74, 76), width=2)
-                    draw.line([p0, p1], fill=(shade, shade + 4, shade + 5), width=1)
-                    if idx % 3 == 0:
-                        pm = ((p0[0] + p1[0]) // 2, (p0[1] + p1[1]) // 2)
-                        draw.point([p0, pm, p1], fill=(220, 224, 225))
-                img_u8 = np.array(pil_img)
-
-            buf = io.BytesIO()
-            Image.fromarray(img_u8).save(buf, format="JPEG", quality=85)
-            with _latest_frame_lock: _latest_frame_bytes = buf.getvalue()
+            with _latest_frame_lock:
+                _latest_frame_bytes = frame_bytes
+                _latest_frame_seq += 1
             last_frame_enc = now
             encode_ms = (time.perf_counter() - encode_start) * 1000.0
             stats["encoded_frames"] += 1
@@ -1119,6 +1647,14 @@ def main(web_ui_only=False, max_frames=None, stats_json=None, initial_direction=
         frame_count += 1
         if max_frames is not None and frame_count >= max_frames:
             break
+
+        # Avoid a busy-spin once a static field is fully converged.
+        if web_ui_only and not should_encode_frame and not current_solver_active():
+            remaining = (1 / TARGET_RENDER_FPS) - (time.perf_counter() - last_frame_enc)
+            if remaining > 0.0:
+                # Sleep(0) yields the CPU without Windows' coarse timer rounding,
+                # which otherwise drops a nominal display cadence below its configured target.
+                time.sleep(0)
 
     if stats_json:
         def summarize(values):
@@ -1130,7 +1666,7 @@ def main(web_ui_only=False, max_frames=None, stats_json=None, initial_direction=
                 "p95": float(np.percentile(arr, 95)),
             }
 
-        total_s = sum(stats["frame_ms"]) / 1000.0
+        total_s = time.perf_counter() - run_start
         summary = {
             "simulator": "magnetic",
             "mode": stats["mode"],
@@ -1138,16 +1674,21 @@ def main(web_ui_only=False, max_frames=None, stats_json=None, initial_direction=
             "frames": frame_count,
             "duration_s": total_s,
             "fps_avg": (frame_count / total_s) if total_s > 0 else 0.0,
-            "encoded_fps": (stats["encoded_frames"] / total_s) if total_s > 0 else 0.0,
+            "encoded_fps": (
+                stats["encoded_frames"] / total_s if total_s > 0 else 0.0
+            ),
             "frame_ms": summarize(stats["frame_ms"]),
             "sim_ms": summarize(stats["sim_ms"]),
             "compose_ms": summarize(stats["compose_ms"]),
             "gui_ms": summarize(stats["gui_ms"]),
             "encode_ms": summarize(stats["encode_ms"]),
             "arrows_ms": summarize(stats["arrows_ms"]),
-            "encoded_frames": stats["encoded_frames"],
+            "filings_ms": summarize(stats["filings_ms"]),            "encoded_frames": stats["encoded_frames"],
             "web_ui_only": web_ui_only,
-            "notes": "Main-loop UI path benchmark; no browser decode/canvas timing included.",
+            "notes": (
+                "Time-sliced persistent PCG with cached B field and fused GPU "
+                "composition; browser decode/canvas timing not included."
+            ),
         }
         os.makedirs(os.path.dirname(stats_json) or ".", exist_ok=True)
         with open(stats_json, "w", encoding="utf-8") as f:

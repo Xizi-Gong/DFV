@@ -1,0 +1,4 @@
+interface:
+  display_name: "Magnetic Taichi Optimizer"
+  short_description: "Optimize magnetic solvers, arrows, filings, and UI latency"
+  default_prompt: "Use $optimize-magnetic-taichi to optimize the solver, Direction, Iron Fillings, and browser latency while preserving magnetic accuracy."
