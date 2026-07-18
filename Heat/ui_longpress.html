@@ -1,0 +1,1168 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Heat Diffusion</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .spring-transition { transition: all 0.7s cubic-bezier(0.34, 1.56, 0.64, 1); }
+        .fade-transition    { transition: opacity 0.4s ease, transform 0.4s ease; }
+        .sub-node {
+            transform: translate(calc(-50% + var(--sx, 0px)), calc(-50% + var(--sy, 0px))) scale(var(--scale, 0));
+        }
+        body { -webkit-font-smoothing: antialiased; overflow: hidden; background: #0a0a0a; touch-action: manipulation; }
+
+        #ws-dot {
+            width: 8px; height: 8px; border-radius: 50%;
+            display: inline-block; margin-right: 6px;
+            background: #94a3b8; transition: background 0.4s;
+        }
+        #ws-dot.connected    { background: #34d399; box-shadow: 0 0 6px #34d399; }
+        #ws-dot.disconnected { background: #f87171; }
+        #ws-dot.connecting   { background: #fbbf24; animation: pulse 1s infinite; }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+        #gl-canvas, #overlay-canvas {
+            position: fixed;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+        }
+        #gl-canvas      { z-index: 0; }
+        #overlay-canvas { z-index: 1; pointer-events: none; }
+
+        #placeholder {
+            position: fixed; inset: 0; z-index: 2;
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center; gap: 16px;
+            background: radial-gradient(ellipse at top, #f8fafc, #e2e8f0);
+            pointer-events: none; transition: opacity 0.6s;
+        }
+        #placeholder.hidden { opacity: 0; pointer-events: none; }
+        .spinner {
+            width: 32px; height: 32px;
+            border: 3px solid #cbd5e1; border-top-color: #64748b;
+            border-radius: 50%; animation: spin 0.9s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ── Colorbar ── */
+        #colorbar-container {
+            position: fixed; bottom: 48px; left: 20px; z-index: 55;
+            display: flex; align-items: stretch; gap: 0;
+            pointer-events: none; opacity: 0;
+            transition: opacity 0.6s ease;
+            font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+        }
+        #colorbar-container.visible { opacity: 1; }
+
+        #colorbar-scale {
+            position: relative; display: flex; flex-direction: column;
+            align-items: flex-end; justify-content: space-between;
+            padding: 1px 0; margin-right: 6px;
+            min-width: 30px;
+        }
+        #colorbar-scale span {
+            font-size: 10px; font-weight: 600; color: #475569;   /* slate-600 */
+            padding: 2px 6px; border-radius: 9999px; line-height: 1;
+            background: rgba(255,255,255,0.6);
+            -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+            border: 1px solid rgba(255,255,255,0.5);
+            box-shadow: 0 1px 6px rgba(0,0,0,0.06);
+        }
+
+        #colorbar-bar {
+            position: relative; width: 14px; height: 220px;
+            border-radius: 7px; overflow: hidden;
+            box-shadow: 0 0 12px rgba(0,0,0,0.3), inset 0 0 2px rgba(255,255,255,0.15);
+            border: 1px solid rgba(255,255,255,0.12);
+        }
+        #colorbar-canvas {
+            width: 100%; height: 100%; display: block; border-radius: 6px;
+        }
+
+        /* Arrow indicators */
+        #colorbar-arrows {
+            position: relative; width: 92px; height: 220px; margin-left: 3px;
+        }
+        .cb-arrow {
+            position: absolute; left: 0;
+            display: flex; align-items: center; gap: 4px;
+            transition: top 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+            transform: translateY(-50%);
+            white-space: nowrap;
+        }
+        .cb-arrow-tip {
+            width: 0; height: 0;
+            border-top: 4px solid transparent;
+            border-bottom: 4px solid transparent;
+            border-right: 6px solid currentColor;
+            flex-shrink: 0;
+            filter: drop-shadow(0 1px 1.5px rgba(0,0,0,0.15));
+        }
+        .cb-arrow-pill {
+            display: inline-flex; align-items: baseline; gap: 3px;
+            padding: 2px 7px; border-radius: 9999px;
+            background: rgba(255,255,255,0.66);
+            -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+            border: 1px solid rgba(255,255,255,0.55);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.07);
+        }
+        .cb-arrow-label {
+            font-size: 11px; font-weight: 600;
+            letter-spacing: 0.01em; line-height: 1;
+            color: inherit;
+        }
+        .cb-arrow-tag {
+            font-size: 8px; font-weight: 600;
+            letter-spacing: 0.03em; line-height: 1;
+            color: #64748b;                 /* slate-500，同状态栏 */
+        }
+        .cb-arrow.max { color: #e11d48; }   /* rose-600 */
+        .cb-arrow.avg { color: #475569; }   /* slate-600 */
+        .cb-arrow.min { color: #2563eb; }   /* blue-600 */
+    </style>
+</head>
+
+<body class="text-slate-800 h-screen w-full relative">
+
+    <canvas id="gl-canvas"></canvas>
+    <canvas id="overlay-canvas"></canvas>
+
+    <div id="placeholder">
+        <div class="spinner"></div>
+        <span style="font-size:13px;letter-spacing:0.12em;color:#64748b;">等待仿真连接…</span>
+    </div>
+
+    <div id="ws-status-bar"
+         class="absolute top-4 right-5 flex items-center text-xs text-slate-500 font-medium tracking-wide z-50
+                bg-white/60 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/50
+                shadow-[0_2px_10px_rgba(0,0,0,0.06)]">
+        <span id="ws-dot" class="connecting"></span>
+        <span id="ws-label">Connecting…</span>
+    </div>
+
+    <div id="app" class="relative w-full h-full"></div>
+
+    <div id="toast"
+         class="fixed bottom-12 left-1/2 -translate-x-1/2
+                bg-white/70 backdrop-blur-xl border border-white/50 text-slate-700
+                px-6 py-3 rounded-full shadow-[0_8px_30px_rgba(0,0,0,0.08)]
+                opacity-0 pointer-events-none transition-all duration-500
+                transform translate-y-4 z-50 text-sm tracking-wider font-medium">
+        Action Hint
+    </div>
+
+    <div id="frozen-indicator"
+         class="fixed top-4 left-1/2 -translate-x-1/2 z-50
+                flex items-center gap-2 px-4 py-2 rounded-full overflow-hidden
+                bg-white/70 backdrop-blur-md border border-cyan-200/60
+                shadow-[0_4px_20px_rgba(0,0,0,0.08)]
+                opacity-0 pointer-events-none transition-all duration-400
+                transform -translate-y-3 cursor-pointer select-none
+                hover:bg-white/90 hover:shadow-[0_4px_24px_rgba(0,0,0,0.12)]
+                active:scale-95"
+         style="transition: opacity 0.4s ease, transform 0.4s ease;">
+        <div id="frozen-fill"
+             style="position:absolute; inset:0; width:0%; z-index:0;
+                    background: linear-gradient(90deg, rgba(251,191,36,0.55), rgba(239,68,68,0.65));
+                    transition: width 0.06s linear;"></div>
+        <span style="font-size:14px; position:relative; z-index:1;">❄️</span>
+        <span id="frozen-label" class="relative z-[1] text-xs font-medium tracking-widest text-slate-500">FROZEN</span>
+        <span id="frozen-hint" class="relative z-[1] text-[10px] text-slate-400 tracking-wide"
+              style="display:inline-block; min-width:88px; text-align:center; white-space:nowrap;">tap to observe</span>
+    </div>
+
+    <div id="colorbar-container">
+        <div id="colorbar-scale">
+            <span id="cb-scale-top"></span>
+            <span id="cb-scale-mid"></span>
+            <span id="cb-scale-bot"></span>
+        </div>
+        <div id="colorbar-bar">
+            <canvas id="colorbar-canvas"></canvas>
+        </div>
+        <div id="colorbar-arrows">
+            <div class="cb-arrow max" id="cb-arrow-max">
+                <div class="cb-arrow-tip"></div>
+                <span class="cb-arrow-pill">
+                    <span class="cb-arrow-label" id="cb-val-max">--</span>
+                    <span class="cb-arrow-tag">MAX</span>
+                </span>
+            </div>
+            <div class="cb-arrow avg" id="cb-arrow-avg">
+                <div class="cb-arrow-tip"></div>
+                <span class="cb-arrow-pill">
+                    <span class="cb-arrow-label" id="cb-val-avg">--</span>
+                    <span class="cb-arrow-tag">AVG</span>
+                </span>
+            </div>
+            <div class="cb-arrow min" id="cb-arrow-min">
+                <div class="cb-arrow-tip"></div>
+                <span class="cb-arrow-pill">
+                    <span class="cb-arrow-label" id="cb-val-min">--</span>
+                    <span class="cb-arrow-tag">MIN</span>
+                </span>
+            </div>
+        </div>
+    </div>
+
+<script>
+// ── 禁止多触点缩放 / 拖拽 ──
+document.addEventListener('touchmove', (e) => {
+    if (e.touches.length > 1) e.preventDefault();
+}, { passive: false });
+document.addEventListener('gesturestart',  (e) => e.preventDefault());
+document.addEventListener('gesturechange', (e) => e.preventDefault());
+
+// ════════════════════════════════════════════════════════
+//  WebGL 温度场渲染器
+// ════════════════════════════════════════════════════════
+const glCanvas      = document.getElementById('gl-canvas');
+const overlayCanvas = document.getElementById('overlay-canvas');
+const placeholder   = document.getElementById('placeholder');
+
+const gl = glCanvas.getContext('webgl2');
+gl.getExtension('OES_texture_float_linear');
+if (!gl) alert('浏览器不支持 WebGL2，请使用 Chrome/Firefox/Edge 最新版');
+
+const VS = `#version 300 es
+in vec2 a_pos;
+out vec2 v_uv;
+void main() {
+    v_uv = a_pos * 0.5 + 0.5;
+    gl_Position = vec4(a_pos, 0.0, 1.0);
+}`;
+
+const FS = `#version 300 es
+precision highp float;
+uniform sampler2D u_temp;
+uniform sampler2D u_lut;
+uniform sampler2D u_mask;
+uniform float u_tmin;
+uniform float u_tmax;
+uniform float u_brightness;
+uniform float u_maskAlpha;
+uniform vec2  u_maskSize;      // 掩膜纹理尺寸 (78, 52)，B-spline 采样需要
+in vec2 v_uv;
+out vec4 fragColor;
+
+// 手形遮罩：正片叠底（统一压暗，保留底下的色相/温度分布），仅 HOLD 模式显示
+// <1 越小越暗；实际强度 = 与 u_maskAlpha 相乘
+const vec3 HAND_TINT = vec3(0.55);
+
+// 手形边界的等值面。后端把有符号接触深度场编码成 uint8，128 = 深度 0 = 边界。
+// B-spline 是近似型滤波（非插值型），会让凸出部位（指尖）轻微内缩；
+// 若发现手指变瘦，把这个值往下调（如 118.0/255.0）即可把面积补回来。
+const float MASK_ISO = 128.0 / 255.0;
+
+// ── 掩膜边缘平滑 ──
+// 原来是「GL 双线性放大二值场 + 数值域 smoothstep」：双线性对二值场的等值线在每格内
+// 是分段线性的，每过一个格子边界就出现一个折角 → 78×52 放大到全屏后就是一圈可见的
+// 多边形台阶。数值域 smoothstep 只是把折线糊宽，折角依然在。
+//
+// 现在改为「三次 B-spline 重建（C² 连续，自带 ~1.5 格平滑）→ fwidth 硬阈值」：
+// 平滑的是标量场，等值线的几何形状被磨圆；阈值一切出来的边缘依然是锐利的一条。
+// 这与「把边缘模糊掉」是相反的两件事 —— 轮廓变顺，边界不糊。
+
+vec4 bsplineW(float v) {
+    vec4 n = vec4(1.0, 2.0, 3.0, 4.0) - v;
+    vec4 s = n * n * n;
+    float x = s.x;
+    float y = s.y - 4.0 * s.x;
+    float z = s.z - 4.0 * s.y + 6.0 * s.x;
+    float w = 6.0 - x - y - z;
+    return vec4(x, y, z, w) * (1.0 / 6.0);
+}
+
+// 用 4 次硬件双线性 tap 完成 4x4 的 B-spline 卷积（需要纹理为 LINEAR 过滤）
+float sampleMaskSmooth(vec2 uv) {
+    vec2 invSize = 1.0 / u_maskSize;
+    vec2 tc  = uv * u_maskSize - 0.5;
+    vec2 fxy = fract(tc);
+    tc -= fxy;
+    vec4 xw = bsplineW(fxy.x);
+    vec4 yw = bsplineW(fxy.y);
+    vec4 c  = tc.xxyy + vec2(-0.5, 1.5).xyxy;
+    vec4 s  = vec4(xw.xz + xw.yw, yw.xz + yw.yw);
+    vec4 off = (c + vec4(xw.yw, yw.yw) / s) * invSize.xxyy;
+    float s0 = texture(u_mask, off.xz).r;
+    float s1 = texture(u_mask, off.yz).r;
+    float s2 = texture(u_mask, off.xw).r;
+    float s3 = texture(u_mask, off.yw).r;
+    float sx = s.x / (s.x + s.y);
+    float sy = s.z / (s.z + s.w);
+    return mix(mix(s3, s2, sx), mix(s1, s0, sx), sy);
+}
+
+void main() {
+    float temp = texture(u_temp, v_uv).r;
+    float t = clamp((temp - u_tmin) / (u_tmax - u_tmin + 1e-6), 0.0, 1.0);
+    t = 1.0 - t;
+    vec3 color = texture(u_lut, vec2(t, 0.5)).rgb * u_brightness;
+
+    // 平滑重建掩膜场，再在等值面上做屏幕空间恒定 ~1px 的抗锯齿阈值。
+    // fwidth 是关键：软边宽度锁死在一个屏幕像素，与画布尺寸/缩放无关。
+    // 掩膜是后端下发的「有符号接触深度场」，128/255 = 手形边界（见 encode_temp_frame）。
+    float f = sampleMaskSmooth(v_uv) - MASK_ISO;
+    float w = fwidth(f) * 0.7 + 1e-5;
+    float a = smoothstep(-w, w, f) * u_maskAlpha;
+    color = mix(color, color * HAND_TINT, a);   // multiply
+
+    fragColor = vec4(color, 1.0);
+}`;
+
+function compileShader(src, type) {
+    const s = gl.createShader(type);
+    gl.shaderSource(s, src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS))
+        throw new Error('Shader error: ' + gl.getShaderInfoLog(s));
+    return s;
+}
+const prog = gl.createProgram();
+gl.attachShader(prog, compileShader(VS, gl.VERTEX_SHADER));
+gl.attachShader(prog, compileShader(FS, gl.FRAGMENT_SHADER));
+gl.linkProgram(prog);
+if (!gl.getProgramParameter(prog, gl.LINK_STATUS))
+    throw new Error('Program link error: ' + gl.getProgramInfoLog(prog));
+
+const quadBuf = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+
+const aPos       = gl.getAttribLocation(prog, 'a_pos');
+const uTemp      = gl.getUniformLocation(prog, 'u_temp');
+const uLut       = gl.getUniformLocation(prog, 'u_lut');
+const uTmin      = gl.getUniformLocation(prog, 'u_tmin');
+const uTmax      = gl.getUniformLocation(prog, 'u_tmax');
+const uBrightness = gl.getUniformLocation(prog, 'u_brightness');
+const uMask       = gl.getUniformLocation(prog, 'u_mask');
+const uMaskAlpha  = gl.getUniformLocation(prog, 'u_maskAlpha');
+const uMaskSize   = gl.getUniformLocation(prog, 'u_maskSize');
+
+const tempTex = gl.createTexture();
+gl.bindTexture(gl.TEXTURE_2D, tempTex);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+const lutTex = gl.createTexture();
+gl.bindTexture(gl.TEXTURE_2D, lutTex);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+const maskTex = gl.createTexture();
+gl.bindTexture(gl.TEXTURE_2D, maskTex);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+let gridW = 78, gridH = 52;
+let tmin = -40, tmax = 300;
+let glReady = false;
+
+function initLut(lutFlat, nColors) {
+    gl.bindTexture(gl.TEXTURE_2D, lutTex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, nColors, 1, 0,
+                  gl.RGB, gl.UNSIGNED_BYTE, new Uint8Array(lutFlat));
+    glReady = true;
+    console.log(`[WebGL] LUT ready: ${nColors} colors`);
+    drawColorbar(lutFlat, nColors);
+    updateColorbarScale();
+}
+
+// ── Colorbar ──
+const cbContainer = document.getElementById('colorbar-container');
+const cbCanvas    = document.getElementById('colorbar-canvas');
+const cbCtx       = cbCanvas.getContext('2d');
+const cbArrowMax  = document.getElementById('cb-arrow-max');
+const cbArrowAvg  = document.getElementById('cb-arrow-avg');
+const cbArrowMin  = document.getElementById('cb-arrow-min');
+const cbValMax    = document.getElementById('cb-val-max');
+const cbValAvg    = document.getElementById('cb-val-avg');
+const cbValMin    = document.getElementById('cb-val-min');
+const cbBarHeight = 220;
+
+function drawColorbar(lutFlat, nColors) {
+    cbCanvas.width  = 14;
+    cbCanvas.height = cbBarHeight;
+    for (let y = 0; y < cbBarHeight; y++) {
+        const t = y / (cbBarHeight - 1);
+        const ci = Math.min(Math.floor(t * (nColors - 1)), nColors - 1);
+        const r = lutFlat[ci * 3], g = lutFlat[ci * 3 + 1], b = lutFlat[ci * 3 + 2];
+        cbCtx.fillStyle = `rgb(${r},${g},${b})`;
+        cbCtx.fillRect(0, y, 14, 1);
+    }
+    cbContainer.classList.add('visible');
+}
+
+function updateColorbarScale() {
+    document.getElementById('cb-scale-top').textContent = Math.round(tmax) + '°';
+    document.getElementById('cb-scale-mid').textContent = Math.round((tmin + tmax) / 2) + '°';
+    document.getElementById('cb-scale-bot').textContent = Math.round(tmin) + '°';
+}
+
+function updateColorbarArrows(tempArr) {
+    let mn = Infinity, mx = -Infinity, sum = 0;
+    for (let i = 0; i < tempArr.length; i++) {
+        const v = tempArr[i];
+        if (v < mn) mn = v;
+        if (v > mx) mx = v;
+        sum += v;
+    }
+    const avg = sum / tempArr.length;
+    const range = tmax - tmin || 1;
+    const toY = (t) => Math.max(0, Math.min(cbBarHeight, (1 - (t - tmin) / range) * cbBarHeight));
+
+    // 防重叠：max/avg/min 从上到下至少间隔 GAP 像素
+    const GAP = 18;
+    let yMax = toY(mx), yAvg = toY(avg), yMin = toY(mn);
+    if (yAvg < yMax + GAP) yAvg = yMax + GAP;
+    if (yMin < yAvg + GAP) yMin = yAvg + GAP;
+    if (yMin > cbBarHeight) {          // 顶到底部就整体上移
+        const shift = yMin - cbBarHeight;
+        yMax -= shift; yAvg -= shift; yMin -= shift;
+    }
+    cbArrowMax.style.top = Math.max(0, yMax) + 'px';
+    cbArrowAvg.style.top = yAvg + 'px';
+    cbArrowMin.style.top = yMin + 'px';
+    cbValMax.textContent = Math.round(mx) + '°';
+    cbValAvg.textContent = Math.round(avg) + '°';
+    cbValMin.textContent = Math.round(mn) + '°';
+}
+
+function renderTemp(tempFloat32, mask8, w, h, brightness, dynMin, dynMax) {
+    gl.bindTexture(gl.TEXTURE_2D, tempTex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, w, h, 0, gl.RED, gl.FLOAT, tempFloat32);
+
+    // 宽度 78 不是 4 的倍数，R8 上传必须把对齐设成 1，否则整行错位
+    gl.bindTexture(gl.TEXTURE_2D, maskTex);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, w, h, 0, gl.RED, gl.UNSIGNED_BYTE, mask8);
+
+    gl.viewport(0, 0, glCanvas.width, glCanvas.height);
+    gl.useProgram(prog);
+    gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
+    gl.enableVertexAttribArray(aPos);
+    gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, tempTex);
+    gl.uniform1i(uTemp, 0);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, lutTex);
+    gl.uniform1i(uLut, 1);
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, maskTex);
+    gl.uniform1i(uMask, 2);
+    gl.uniform1f(uTmin, dynMin !== undefined ? dynMin : tmin);
+    gl.uniform1f(uTmax, dynMax !== undefined ? dynMax : tmax);
+    gl.uniform1f(uBrightness, brightness);
+    gl.uniform1f(uMaskAlpha, maskAlpha);
+    gl.uniform2f(uMaskSize, w, h);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+}
+
+// ── Canvas2D 粒子叠加层 ──
+const overlayCtx = overlayCanvas.getContext('2d');
+
+let showIsotherms  = true;
+let latestTempGrid = null;
+let latestTmin     = -40, latestTmax = 300;
+
+// ── 观察模式状态机（长按版）──
+// LIVE → 长按进度达100% → OBSERVE_HOLD → 点按钮 → OBSERVE_COOL → 点按钮 → LIVE
+let displayMode        = 'LIVE';   // 'LIVE' | 'OBSERVE_HOLD' | 'OBSERVE_COOL'
+
+// ── 手形遮罩：仅 OBSERVE_HOLD 显示，进出做插值淡入淡出 ──
+// 正片叠底强度（0=无，1=完全按 HAND_TINT 压暗）。0.5 → 实际衰减约 22%
+const MASK_ALPHA_ON = 0.5;
+let   maskAlpha     = 0.0;
+let hadTouchLastFrame  = false;
+let wasObserveHold     = false;    // 追踪是否刚从 OBSERVE_HOLD 过渡
+
+// ════════════════════════════════════════════════════════
+//  双线性上采样
+// ════════════════════════════════════════════════════════
+const ISO_UPSAMPLE = 6;
+
+let upW = 0, upH = 0, upBuf = null;
+
+function ensureUpsampleBuffer(srcW, srcH, factor) {
+    const nw = (srcW - 1) * factor + 1;
+    const nh = (srcH - 1) * factor + 1;
+    if (nw !== upW || nh !== upH) {
+        upW = nw; upH = nh;
+        upBuf = new Float32Array(nw * nh);
+    }
+}
+
+function bilinearUpsample(src, srcW, srcH, factor) {
+    ensureUpsampleBuffer(srcW, srcH, factor);
+    const dw = upW, dh = upH;
+    const dst = upBuf;
+    const invF = 1.0 / factor;
+    const maxCol = srcW - 1, maxRow = srcH - 1;
+
+    for (let dy = 0; dy < dh; dy++) {
+        const sy = dy * invF;
+        const r0 = sy | 0;
+        const r1 = r0 < maxRow ? r0 + 1 : r0;
+        const fy = sy - r0;
+        const fy1 = 1 - fy;
+        const r0Off = r0 * srcW, r1Off = r1 * srcW;
+        const dOff = dy * dw;
+
+        for (let dx = 0; dx < dw; dx++) {
+            const sx = dx * invF;
+            const c0 = sx | 0;
+            const c1 = c0 < maxCol ? c0 + 1 : c0;
+            const fx = sx - c0;
+
+            dst[dOff + dx] =
+                fy1 * ((1 - fx) * src[r0Off + c0] + fx * src[r0Off + c1]) +
+                fy  * ((1 - fx) * src[r1Off + c0] + fx * src[r1Off + c1]);
+        }
+    }
+    return { data: dst, w: dw, h: dh };
+}
+
+// ════════════════════════════════════════════════════════
+//  Marching Squares — 按等温值分组输出
+// ════════════════════════════════════════════════════════
+const MS_TABLE = {
+    1:[3,0], 2:[0,1], 3:[3,1], 4:[1,2], 6:[0,2],
+    7:[3,2], 8:[2,3], 9:[2,0], 11:[2,1], 12:[1,3],
+    13:[1,0], 14:[3,0],
+    5:[[0,3],[1,2]], 10:[[0,1],[2,3]]
+};
+
+function marchingSquaresGrouped(grid, gw, gh, isoValues) {
+    const allGroups = [];                          // [{segs:[{x0,y0,x1,y1}]}]
+    const lerp = (iso, a, b) =>
+        Math.abs(b - a) < 1e-10 ? 0.5 : (iso - a) / (b - a);
+    const invW = 1 / (gw - 1), invH = 1 / (gh - 1);
+
+    for (let lv = 0; lv < isoValues.length; lv++) {
+        const iso = isoValues[lv];
+        const segs = [];
+        for (let row = 0; row < gh - 1; row++) {
+            const y0c = row * invH, y1c = (row + 1) * invH;
+            const r0 = row * gw, r1 = (row + 1) * gw;
+            for (let col = 0; col < gw - 1; col++) {
+                const v00 = grid[r0 + col];
+                const v10 = grid[r0 + col + 1];
+                const v01 = grid[r1 + col];
+                const v11 = grid[r1 + col + 1];
+
+                const c = ((v00 > iso ? 1 : 0) | (v10 > iso ? 2 : 0) |
+                           (v11 > iso ? 4 : 0) | (v01 > iso ? 8 : 0));
+                if (c === 0 || c === 15) continue;
+
+                const x0c = col * invW, x1c = (col + 1) * invW;
+                const pt = (edge) => {
+                    if (edge === 0) return [x0c + lerp(iso,v00,v10)*(x1c-x0c), y0c];
+                    if (edge === 1) return [x1c, y0c + lerp(iso,v10,v11)*(y1c-y0c)];
+                    if (edge === 2) return [x0c + lerp(iso,v01,v11)*(x1c-x0c), y1c];
+                    return [x0c, y0c + lerp(iso,v00,v01)*(y1c-y0c)];
+                };
+
+                const entry = MS_TABLE[c];
+                if (!entry) continue;
+                if (Array.isArray(entry[0])) {
+                    for (const [e0, e1] of entry) {
+                        const [ax,ay] = pt(e0), [bx,by] = pt(e1);
+                        segs.push({x0:ax, y0:ay, x1:bx, y1:by});
+                    }
+                } else {
+                    const [ax,ay] = pt(entry[0]), [bx,by] = pt(entry[1]);
+                    segs.push({x0:ax, y0:ay, x1:bx, y1:by});
+                }
+            }
+        }
+        if (segs.length > 0) allGroups.push(segs);
+    }
+    return allGroups;
+}
+
+// ════════════════════════════════════════════════════════
+//  线段串联 → polyline（简化版：整数哈希邻接表）
+// ════════════════════════════════════════════════════════
+function chainSegments(segs) {
+    const n = segs.length;
+    if (n === 0) return [];
+    const used = new Uint8Array(n);
+    const adj = new Map();
+    const key = (x, y) => ((x * 1e6 + 0.5) | 0) * 100003 + ((y * 1e6 + 0.5) | 0);
+    const add = (k, i, end) => {
+        let a = adj.get(k); if (!a) { a = []; adj.set(k, a); }
+        a.push(i | (end << 24));
+    };
+    for (let i = 0; i < n; i++) {
+        const s = segs[i];
+        add(key(s.x0, s.y0), i, 0);
+        add(key(s.x1, s.y1), i, 1);
+    }
+
+    // 从一个端点出发，沿邻接表往前走
+    const walk = (startX, startY) => {
+        const pts = [];
+        let cx = startX, cy = startY;
+        for (;;) {
+            const bucket = adj.get(key(cx, cy));
+            if (!bucket) break;
+            let found = false;
+            for (let bi = 0; bi < bucket.length; bi++) {
+                const packed = bucket[bi];
+                const idx = packed & 0xFFFFFF, end = packed >> 24;
+                if (used[idx]) continue;
+                used[idx] = 1;
+                const s = segs[idx];
+                // end=0 表示 (x0,y0) 匹配，走向 (x1,y1)；反之亦然
+                cx = end === 0 ? s.x1 : s.x0;
+                cy = end === 0 ? s.y1 : s.y0;
+                pts.push(cx, cy);
+                found = true; break;
+            }
+            if (!found) break;
+        }
+        return pts;
+    };
+
+    const chains = [];
+    for (let i = 0; i < n; i++) {
+        if (used[i]) continue;
+        used[i] = 1;
+        const s = segs[i];
+        // 从 s 的 x1 方向走
+        const forward = walk(s.x1, s.y1);
+        // 从 s 的 x0 方向走
+        const backward = walk(s.x0, s.y0);
+        // 拼接：backward(反转) + s.x0,y0 + s.x1,y1 + forward
+        const chain = [];
+        for (let j = backward.length - 2; j >= 0; j -= 2) {
+            chain.push(backward[j], backward[j + 1]);
+        }
+        chain.push(s.x0, s.y0, s.x1, s.y1);
+        for (let j = 0; j < forward.length; j++) chain.push(forward[j]);
+        if (chain.length >= 4) chains.push(chain);  // 至少 2 个点
+    }
+    return chains;
+}
+
+// ── overlay：粒子 + 等温线 ──
+function drawOverlay(segs) {
+    overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+    const W = overlayCanvas.width, H = overlayCanvas.height;
+
+    // 粒子流线
+    if (segs && segs.length > 0) {
+        for (const [x0, y0, x1, y1, alpha] of segs) {
+            overlayCtx.beginPath();
+            overlayCtx.strokeStyle = `rgba(255,255,255,${Math.min(alpha * 0.65, 1).toFixed(3)})`;
+            overlayCtx.lineWidth = 1.5;
+            overlayCtx.moveTo(x0 * W, (1 - y0) * H);
+            overlayCtx.lineTo(x1 * W, (1 - y1) * H);
+            overlayCtx.stroke();
+        }
+    }
+
+    // 等温线 — 上采样 → Marching Squares → 串联 → quadraticCurveTo 平滑
+    if (showIsotherms && latestTempGrid) {
+        const isoStep = 3;
+        const isoValues = [];
+        for (let t = Math.ceil(tmin / isoStep) * isoStep; t <= tmax; t += isoStep) {
+            isoValues.push(t);
+        }
+
+        const up = bilinearUpsample(latestTempGrid, gridW, gridH, ISO_UPSAMPLE);
+        const isoGroups = marchingSquaresGrouped(up.data, up.w, up.h, isoValues);
+
+        // overlayCtx.strokeStyle = 'rgba(30,30,30,0.45)';
+        overlayCtx.strokeStyle = 'rgba(80,80,80,0.5)';
+        overlayCtx.lineWidth   = 1.2;
+        overlayCtx.lineJoin    = 'round';
+        overlayCtx.lineCap     = 'round';
+
+        for (const groupSegs of isoGroups) {
+            const chains = chainSegments(groupSegs);
+            for (const c of chains) {
+                const nPts = c.length >> 1;
+                if (nPts < 2) continue;
+
+                // 像素坐标映射
+                const px = (j) => c[j * 2] * W;
+                const py = (j) => (1 - c[j * 2 + 1]) * H;
+
+                overlayCtx.beginPath();
+                overlayCtx.moveTo(px(0), py(0));
+
+                if (nPts === 2) {
+                    overlayCtx.lineTo(px(1), py(1));
+                } else {
+                    // 中点贝塞尔：以原始点做控制点，相邻中点做锚点
+                    // 第一段：起点 → 第一个中点
+                    overlayCtx.quadraticCurveTo(px(0), py(0),
+                        (px(0) + px(1)) * 0.5, (py(0) + py(1)) * 0.5);
+                    // 中间段
+                    for (let j = 1; j < nPts - 1; j++) {
+                        overlayCtx.quadraticCurveTo(px(j), py(j),
+                            (px(j) + px(j + 1)) * 0.5, (py(j) + py(j + 1)) * 0.5);
+                    }
+                    // 最后一段：最后一个中点 → 终点
+                    overlayCtx.quadraticCurveTo(px(nPts - 1), py(nPts - 1),
+                        px(nPts - 1), py(nPts - 1));
+                }
+                overlayCtx.stroke();
+            }
+        }
+    }
+}
+
+// ── Canvas 尺寸自适应 ──
+function resizeCanvases() {
+    const dpr   = window.devicePixelRatio || 1;
+    const scale = Math.min(window.innerWidth / 624, window.innerHeight / 416) * 0.98;
+    const cssW  = Math.round(624 * scale);
+    const cssH  = Math.round(416 * scale);
+    const pixW  = Math.round(cssW * dpr);
+    const pixH  = Math.round(cssH * dpr);
+
+    [glCanvas, overlayCanvas].forEach(c => {
+        c.style.width  = cssW + 'px';
+        c.style.height = cssH + 'px';
+        if (c.width !== pixW || c.height !== pixH) {
+            c.width  = pixW;
+            c.height = pixH;
+        }
+    });
+    if (gl) gl.viewport(0, 0, glCanvas.width, glCanvas.height);
+}
+window.addEventListener('resize', resizeCanvases);
+resizeCanvases();
+
+// ── 模式指示器 ──
+const frozenEl    = document.getElementById('frozen-indicator');
+const frozenLabel = document.getElementById('frozen-label');
+const frozenHint  = document.getElementById('frozen-hint');
+const frozenIcon  = frozenEl.querySelector('span');
+const frozenFill  = document.getElementById('frozen-fill');
+
+const FILL_GRADIENT = 'linear-gradient(90deg, rgba(251,191,36,0.55), rgba(239,68,68,0.65))';
+function fillCharging(p) { frozenFill.style.background = FILL_GRADIENT; frozenFill.style.width = (p * 100) + '%'; }
+function fillFull()      { frozenFill.style.background = FILL_GRADIENT; frozenFill.style.width = '100%'; }  // 充满后保持同一渐变，不变纯色
+function fillReset()     { frozenFill.style.background = FILL_GRADIENT; frozenFill.style.width = '0%'; }
+
+function showModeIndicator(mode) {
+    // mode: 'OBSERVE_HOLD' | 'OBSERVE_COOL' | false (hide)
+    if (mode === 'OBSERVE_HOLD') {
+        frozenIcon.textContent  = '🔥';
+        frozenLabel.textContent = 'HOLD';
+        frozenHint.textContent  = 'tap → cooling';
+        fillFull();                         // 充满后保持同一渐变（满格），不清空、不变纯色
+        frozenEl.classList.remove('opacity-0', '-translate-y-3', 'pointer-events-none');
+        frozenEl.classList.add('opacity-100', 'translate-y-0');
+    } else if (mode === 'OBSERVE_COOL') {
+        frozenIcon.textContent  = '❄️';
+        frozenLabel.textContent = 'COOLING';
+        frozenHint.textContent  = 'tap → live';
+        fillReset();
+        frozenEl.classList.remove('opacity-0', '-translate-y-3', 'pointer-events-none');
+        frozenEl.classList.add('opacity-100', 'translate-y-0');
+    } else {
+        fillReset();
+        frozenEl.classList.add('opacity-0', '-translate-y-3', 'pointer-events-none');
+        frozenEl.classList.remove('opacity-100', 'translate-y-0');
+    }
+}
+
+frozenEl.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (displayMode === 'OBSERVE_HOLD') {
+        displayMode = 'OBSERVE_COOL';
+        showModeIndicator('OBSERVE_COOL');
+        sendCommand('set_freeze_input', false);
+    } else if (displayMode === 'OBSERVE_COOL') {
+        displayMode = 'LIVE';
+        showModeIndicator(false);
+    }
+});
+
+// ── 二进制帧解析 ──
+// 充能：长按时直接「填满」顶端的 HOLD 按钮（复用 frozen-indicator）
+function showCharge(progress) {
+    frozenIcon.textContent  = '🔥';
+    frozenLabel.textContent = 'HOLD';
+    frozenHint.textContent  = Math.round(progress * 100) + '%';
+    fillCharging(progress);
+    frozenEl.classList.remove('opacity-0', '-translate-y-3', 'pointer-events-none');
+    frozenEl.classList.add('opacity-100', 'translate-y-0');
+}
+function hideCharge() {
+    showModeIndicator(false);   // 隐藏并清空填充
+}
+
+function onBinaryFrame(buffer) {
+    if (!glReady) return;
+    placeholder.classList.add('hidden');
+
+    const view   = new DataView(buffer);
+    let   offset = 0;
+
+    const nSegs      = view.getUint32(offset,  true); offset += 4;
+    const brightness = view.getFloat32(offset, true); offset += 4;
+    const hasTouchThisFrame = view.getUint8(offset);  offset += 1;
+    const progressRaw       = view.getUint8(offset);  offset += 1;
+    const progress = progressRaw / 255;   // 0.0 - 1.0
+
+    // ── 充能：按压进度逐渐填满顶端 HOLD 按钮 ──
+    // 进度仅在「重按」(后端压感门控通过) 时才会 >0，轻触加热时 progress 恒为 0 → 按钮隐藏
+    if (displayMode === 'LIVE') {
+        if (hasTouchThisFrame && progress > 0 && progress < 1.0) {
+            showCharge(progress);
+        } else if (progress < 1.0) {
+            // 未达标 → 隐藏；已达标(>=1.0)交给状态机转 HOLD，避免充满瞬间闪一下白
+            hideCharge();
+        }
+    }
+
+    // ── 长按状态机 ──
+    if (displayMode === 'LIVE' && progress >= 1.0) {
+        // 长按达标 → 进入 OBSERVE_HOLD（后端已自动冻结）
+        displayMode = 'OBSERVE_HOLD';
+        showModeIndicator('OBSERVE_HOLD');
+    } else if (displayMode === 'OBSERVE_HOLD' && hasTouchThisFrame && !wasObserveHold) {
+        // 冻结后手已抬起又重新触摸 → 恢复 LIVE
+        displayMode = 'LIVE';
+        showModeIndicator(false);
+        sendCommand('set_freeze_input', false);
+    } else if (displayMode === 'OBSERVE_COOL' && hasTouchThisFrame) {
+        displayMode = 'LIVE';
+        showModeIndicator(false);
+    }
+
+    // 追踪：刚进入 OBSERVE_HOLD 时手还在屏幕上，不要立即跳回 LIVE
+    wasObserveHold = (displayMode === 'OBSERVE_HOLD' && hasTouchThisFrame);
+
+    hadTouchLastFrame = !!hasTouchThisFrame;
+
+    const nTemps  = gridW * gridH;
+    const tempArr = new Float32Array(buffer.slice(offset, offset + nTemps * 4));
+    offset += nTemps * 4;
+
+    // ── 手形掩膜 (uint8 0/255)，紧跟温度场之后 ──
+    const mask8 = new Uint8Array(buffer, offset, nTemps);
+    offset += nTemps;
+
+    // 仅 HOLD 模式开启遮罩
+    const maskTarget = (displayMode === 'OBSERVE_HOLD') ? MASK_ALPHA_ON : 0.0;
+    maskAlpha += (maskTarget - maskAlpha) * 0.18;
+    if (Math.abs(maskTarget - maskAlpha) < 0.004) maskAlpha = maskTarget;
+
+    latestTempGrid = tempArr;
+
+    const segs = [];
+    for (let i = 0; i < nSegs; i++) {
+        const x0 = view.getFloat32(offset, true); offset += 4;
+        const y0 = view.getFloat32(offset, true); offset += 4;
+        const x1 = view.getFloat32(offset, true); offset += 4;
+        const y1 = view.getFloat32(offset, true); offset += 4;
+        const a  = view.getFloat32(offset, true); offset += 4;
+        segs.push([x0, y0, x1, y1, a]);
+    }
+
+    renderTemp(tempArr, mask8, gridW, gridH, brightness, tmin, tmax);
+    drawOverlay(segs);
+    updateColorbarArrows(tempArr);
+}
+
+// ════════════════════════════════════════════════════════
+//  WebSocket 客户端
+// ════════════════════════════════════════════════════════
+const WS_URL = 'ws://localhost:8765';
+let ws = null, wsReady = false;
+
+function connectWS() {
+    const dot = document.getElementById('ws-dot'), label = document.getElementById('ws-label');
+    dot.className = 'connecting'; label.textContent = 'Connecting…';
+
+    ws = new WebSocket(WS_URL);
+    ws.binaryType = 'arraybuffer';
+
+    ws.onopen = () => {
+        wsReady = true;
+        dot.className = 'connected'; label.textContent = 'Connected';
+        showToast('✓ Connected to simulation');
+    };
+    ws.onmessage = (e) => {
+        if (e.data instanceof ArrayBuffer) {
+            onBinaryFrame(e.data);
+        } else if (typeof e.data === 'string') {
+            const msg = JSON.parse(e.data);
+            if (msg.type === 'lut_init') {
+                gridW = msg.grid_w;
+                gridH = msg.grid_h;
+                tmin  = msg.tmin;
+                tmax  = msg.tmax;
+                initLut(msg.lut, msg.lut.length / 3);
+            }
+        }
+    };
+    ws.onclose = () => {
+        wsReady = false;
+        dot.className = 'disconnected'; label.textContent = 'Disconnected — retrying…';
+        placeholder.classList.remove('hidden');
+        setTimeout(connectWS, 3000);
+    };
+    ws.onerror = () => { wsReady = false; dot.className = 'disconnected'; };
+}
+
+function sendCommand(action, value) {
+    if (ws && wsReady) ws.send(JSON.stringify({ action, value }));
+    else showToast('⚠ Not connected');
+}
+
+connectWS();
+
+// ── 手动调节加热压感阈值：[ 减小 / ] 增大（步进 0.02，0~1）──
+let pressureThreshold = 0.25;   // 与后端默认值保持一致
+window.addEventListener('keydown', (e) => {
+    if (e.key !== '[' && e.key !== ']') return;
+    pressureThreshold += (e.key === ']' ? 0.02 : -0.02);
+    pressureThreshold = Math.max(0, Math.min(1, Math.round(pressureThreshold * 100) / 100));
+    sendCommand('set_pressure_threshold', pressureThreshold);
+    showToast(`加热压感阈值: ${pressureThreshold.toFixed(2)}   （[ 减 · ] 增）`);
+});
+
+// ════════════════════════════════════════════════════════
+//  UI 菜单系统
+// ════════════════════════════════════════════════════════
+const ICON_MAP = {
+    'Foam Plastic':              'icons/1-1 Foam Plastic.png',
+    'Wood':                      'icons/1-2 Wood.png',
+    'Concrete':                  'icons/1-3 Concrete.png',
+    'Glass':                     'icons/1-4 Glass.png',
+    'Steel':                     'icons/1-5 Steel.png',
+    'Alum':                      'icons/1-6 Aluminum Alloy.png',
+    'Copper':                    'icons/1-7 Copper.png',
+    'Cold Winter Outdoors':      'icons/2-1 Cold Winter Outdoors.png',
+    'Freezing Point':            'icons/2-2 Freezing Point.png',
+    'Comfortable Room':          'icons/2-3 Comfortable Room Temperature.png',
+    'Hot Summer':                'icons/2-4 Hot Summer.png',
+    'Desert Heat':               'icons/2-5 Desert Heat.png',
+    'Still Air':                 'icons/3-1 Still Air.png',
+    'Weak Airflow':              'icons/3-2 Weak Airflow.png',
+    'Indoor Natural Convection': 'icons/3-3 Indoor Natural Convection.png',
+    'Strong Fan':                'icons/3-4 Desk Fan Breeze.png',
+    'Streamlines':               'icons/streamline.png',
+    'Isotherms':                 'icons/isotherm.png'
+};
+const iconSrc = (param) => ICON_MAP[param] || null;
+
+const menus = [
+    {
+        type: 'radial', id: 'material', name: 'Material',
+        params: ['Foam Plastic', 'Wood', 'Concrete', 'Glass', 'Steel', 'Alum', 'Copper'],
+        wsAction: 'set_material'
+    },
+    {
+        type: 'radial', id: 'environment', name: 'Environment',
+        params: ['Cold Winter Outdoors', 'Freezing Point', 'Comfortable Room', 'Hot Summer', 'Desert Heat'],
+        wsAction: 'set_ambient'
+    },
+    {
+        type: 'radial', id: 'airflow', name: 'Airflow',
+        params: ['Still Air', 'Weak Airflow', 'Indoor Natural Convection', 'Strong Fan'],
+        wsAction: 'set_airflow'
+    },
+    {
+        type: 'toggle', id: 'streamlines', name: 'Streamlines',
+        wsAction: 'toggle_streamlines', isOn: false
+    },
+    {
+        type: 'toggle', id: 'isotherms', name: 'Isotherms',
+        wsAction: 'toggle_isotherms', isOn: true
+    }
+];
+
+menus.forEach(m => {
+    if (m.type === 'radial') {
+        if (m.id === 'material')    m.selectedParam = 'Glass';
+        else if (m.id === 'environment') m.selectedParam = 'Freezing Point';
+        else if (m.id === 'airflow')     m.selectedParam = 'Indoor Natural Convection';
+        else m.selectedParam = m.params[0];
+    }
+});
+let currentState = 'IDLE', activeMenuIndex = -1;
+const app = document.getElementById('app');
+
+const radialRadius = 130, spacing = 220;
+
+const mainCircleBaseClass = "relative flex items-center justify-center w-20 h-20 rounded-full cursor-pointer backdrop-blur-md transition-all duration-500 ease-out z-20 group";
+const subCircleBaseClass  = "sub-node absolute top-1/2 left-1/2 flex items-center justify-center w-16 h-16 rounded-full cursor-pointer bg-gradient-to-br from-white/70 to-white/10 backdrop-blur-md border border-white/40 shadow-[inset_2px_2px_4px_rgba(255,255,255,0.8),_inset_-2px_-2px_4px_rgba(0,0,0,0.04),_0_8px_20px_rgba(0,0,0,0.06)] hover:from-white/90 hover:to-white/30 hover:shadow-[inset_2px_2px_8px_rgba(255,255,255,1),_0_12px_24px_rgba(0,0,0,0.12)] transition-all duration-300 z-10 group";
+
+menus.forEach((menu, i) => {
+    const group = document.createElement('div');
+    group.className = 'absolute top-20 left-1/2 spring-transition';
+    group.id = `group-${i}`;
+
+    const mainCircle = document.createElement('div');
+    mainCircle.id = `main-${i}`;
+    mainCircle.className = mainCircleBaseClass;
+
+    const mainImg = document.createElement('img');
+    mainImg.id = `main-img-${i}`;
+    mainImg.src = (menu.type === 'radial' ? iconSrc(menu.selectedParam) : null) || iconSrc(menu.name)
+        || `https://api.dicebear.com/9.x/shapes/svg?seed=${encodeURIComponent(menu.type==='radial'?menu.id+menu.selectedParam:menu.id)}&backgroundColor=transparent`;
+    const mainIconSize = menu.id === 'material' ? 'w-[60%] h-[60%]' : 'w-[100%] h-[100%]';
+    mainImg.className = `${mainIconSize} object-contain drop-shadow-[0_6px_6px_rgba(0,0,0,0.15)] group-hover:scale-110 transition-transform duration-300`;
+    mainImg.alt = menu.name; mainImg.draggable = false;
+    mainCircle.appendChild(mainImg);
+
+    const labelBox = document.createElement('div');
+    labelBox.id = `label-${i}`;
+    labelBox.className = 'absolute bottom-[calc(100%+16px)] left-1/2 -translate-x-1/2 px-4 py-1.5 bg-white/80 backdrop-blur-md border border-white/60 text-slate-700 font-medium text-sm tracking-widest rounded-full shadow-[0_4px_16px_rgba(0,0,0,0.06)] whitespace-nowrap fade-transition opacity-0 pointer-events-none z-30';
+    labelBox.textContent = menu.name;
+    mainCircle.appendChild(labelBox);
+
+    const selLabel = document.createElement('div');
+    selLabel.id = `main-sel-label-${i}`;
+    selLabel.className = "absolute top-[calc(100%+12px)] left-1/2 -translate-x-1/2 text-xs text-slate-500 whitespace-nowrap transition-all duration-300 group-hover:text-slate-800 font-medium tracking-wider pointer-events-none drop-shadow-sm";
+    selLabel.textContent = menu.type === 'radial' ? menu.selectedParam : (menu.isOn ? 'ON' : 'OFF');
+    mainCircle.appendChild(selLabel);
+
+    mainCircle.addEventListener('click', (e) => { e.stopPropagation(); handleMainClick(i); });
+    group.appendChild(mainCircle);
+
+    if (menu.type === 'radial') {
+        const subContainer = document.createElement('div');
+        subContainer.className = 'absolute inset-0 z-10 pointer-events-none';
+        const N = menu.params.length;
+        menu.params.forEach((param, paramIndex) => {
+            const subNode = document.createElement('div');
+            subNode.className = `${subCircleBaseClass} sub-${i}`;
+            const img = document.createElement('img');
+            img.src = iconSrc(param) || `https://api.dicebear.com/9.x/shapes/svg?seed=${encodeURIComponent(menu.id + param)}&backgroundColor=transparent`;
+            const iconSize = menu.id === 'material' ? 'w-[60%] h-[60%]' : 'w-[100%] h-[100%]';
+            img.className = `${iconSize} object-contain drop-shadow-[0_4px_4px_rgba(0,0,0,0.15)] group-hover:scale-110 transition-transform duration-300`;
+            img.draggable = false; subNode.appendChild(img);
+            const subLabel = document.createElement('div');
+            subLabel.className = "absolute top-1/2 left-1/2 text-[11px] text-slate-500 whitespace-nowrap transition-colors duration-300 group-hover:text-slate-800 font-medium tracking-wider pointer-events-none drop-shadow-sm";
+            subLabel.textContent = param; subNode.appendChild(subLabel);
+            const angle = N === 1 ? 90 : 160 + ((20 - 160) / (N - 1)) * paramIndex;
+            const rad = angle * Math.PI / 180;
+            const sx = radialRadius * Math.cos(rad), sy = radialRadius * Math.sin(rad);
+            const lx = Math.cos(rad) * 42, ly = Math.sin(rad) * 42;
+            const tx = -50 + Math.cos(rad) * 50, ty = -50 + Math.sin(rad) * 50;
+            subLabel.style.transform = `translate(calc(${tx}% + ${lx}px), calc(${ty}% + ${ly}px))`;
+            subNode.style.setProperty('--sx', `${sx}px`);
+            subNode.style.setProperty('--sy', `${sy}px`);
+            subNode.style.transitionDelay = `${paramIndex * 0.03}s`;
+            subNode.addEventListener('click', (e) => { e.stopPropagation(); handleSubClick(i, param); });
+            subContainer.appendChild(subNode);
+        });
+        group.appendChild(subContainer);
+    }
+    app.appendChild(group);
+});
+
+document.body.addEventListener('click', () => {
+    if (currentState !== 'IDLE') { currentState = 'IDLE'; activeMenuIndex = -1; updateDOM(); }
+});
+
+function handleMainClick(index) {
+    const menu = menus[index];
+    if (currentState === 'IDLE') {
+        currentState = 'FOCUSED'; activeMenuIndex = index;
+    } else if (currentState === 'FOCUSED') {
+        if (activeMenuIndex === index) {
+            if (menu.type === 'radial') { currentState = 'EXPANDED'; }
+            else { menu.isOn = !menu.isOn; sendCommand(menu.wsAction, menu.isOn); if (menu.id === 'isotherms') showIsotherms = menu.isOn; showToast(`${menu.name}: ${menu.isOn ? 'ON ✓' : 'OFF'}`); }
+        } else { activeMenuIndex = index; }
+    } else if (currentState === 'EXPANDED') {
+        if (activeMenuIndex === index) { currentState = 'IDLE'; activeMenuIndex = -1; }
+        else { currentState = 'FOCUSED'; activeMenuIndex = index; }
+    }
+    updateDOM();
+}
+
+function handleSubClick(menuIndex, paramName) {
+    const menu = menus[menuIndex];
+    menu.selectedParam = paramName;
+    sendCommand(menu.wsAction, paramName);
+    showToast(`→ ${menu.name}: [ ${paramName} ]`);
+    currentState = 'IDLE'; activeMenuIndex = -1;
+    updateDOM();
+}
+
+function updateDOM() {
+    menus.forEach((menu, i) => {
+        const group = document.getElementById(`group-${i}`);
+        const mainCircle = document.getElementById(`main-${i}`);
+        const mainImg = document.getElementById(`main-img-${i}`);
+        const selLabel = document.getElementById(`main-sel-label-${i}`);
+        const label = document.getElementById(`label-${i}`);
+        const subNodes = document.querySelectorAll(`.sub-${i}`);
+        let xOffset = 0, scale = 1, opacity = 0.65, isLabelVisible = false, isSelLabelVisible = true, subScale = 0, zIndex = 10;
+        let ringClass = "bg-gradient-to-br from-white/40 to-white/10 border border-white/30 shadow-[inset_2px_2px_6px_rgba(255,255,255,0.6),_0_8px_24px_rgba(0,0,0,0.05)]";
+        const N_MENUS = menus.length;
+        const defaultXOffset = (i - (N_MENUS - 1) / 2) * spacing;
+        if (menu.type === 'radial') {
+            mainImg.src = iconSrc(menu.selectedParam) || `https://api.dicebear.com/9.x/shapes/svg?seed=${encodeURIComponent(menu.id + menu.selectedParam)}&backgroundColor=transparent`;
+            selLabel.textContent = menu.selectedParam;
+        } else {
+            selLabel.textContent = menu.isOn ? 'ON' : 'OFF';
+            if (menu.isOn) { selLabel.classList.add('text-cyan-600', 'font-bold'); selLabel.classList.remove('text-slate-500', 'font-medium'); }
+            else { selLabel.classList.remove('text-cyan-600', 'font-bold'); selLabel.classList.add('text-slate-500', 'font-medium'); }
+        }
+        if (currentState === 'IDLE') {
+            xOffset = defaultXOffset;
+            if (menu.type === 'toggle' && menu.isOn) { opacity = 0.8; ringClass = "bg-gradient-to-br from-white/60 to-white/20 border border-cyan-300 shadow-[inset_2px_2px_6px_rgba(255,255,255,0.8),_0_8px_24px_rgba(34,211,238,0.2)]"; }
+        } else if (currentState === 'FOCUSED') {
+            xOffset = defaultXOffset;
+            if (i === activeMenuIndex) {
+                opacity = 1; scale = 1.15; isLabelVisible = true; zIndex = 50;
+                ringClass = (menu.type === 'toggle' && menu.isOn)
+                    ? "bg-gradient-to-br from-white/90 to-white/60 border border-cyan-400 shadow-[inset_2px_2px_10px_rgba(255,255,255,1),_0_12px_32px_rgba(34,211,238,0.4)]"
+                    : "bg-gradient-to-br from-white/90 to-white/50 border border-white/80 shadow-[inset_2px_2px_10px_rgba(255,255,255,1),_inset_-2px_-2px_6px_rgba(0,0,0,0.02),_0_12px_32px_rgba(0,0,0,0.12)]";
+            } else {
+                opacity = (menu.type === 'toggle' && menu.isOn) ? 0.7 : 0.4; scale = 0.9;
+                if (menu.type === 'toggle' && menu.isOn) ringClass = "bg-gradient-to-br from-white/60 to-white/20 border border-cyan-300 shadow-[0_4px_16px_rgba(34,211,238,0.15)]";
+            }
+        } else if (currentState === 'EXPANDED') {
+            xOffset = defaultXOffset;
+            if (i === activeMenuIndex && menu.type === 'radial') {
+                opacity = 1; scale = 1.1; subScale = 1; zIndex = 50; isLabelVisible = false; isSelLabelVisible = false;
+                ringClass = "bg-white border border-white shadow-[inset_2px_2px_12px_rgba(255,255,255,1),_0_16px_40px_rgba(0,0,0,0.15)]";
+            } else {
+                opacity = (menu.type === 'toggle' && menu.isOn) ? 0.7 : 0.4; scale = 0.9;
+                if (menu.type === 'toggle' && menu.isOn) ringClass = "bg-gradient-to-br from-white/60 to-white/20 border border-cyan-300 shadow-[0_4px_16px_rgba(34,211,238,0.15)]";
+            }
+        }
+        group.style.transform = `translate(calc(-50% + ${xOffset}px), -50%) scale(${scale})`;
+        group.style.opacity = opacity; group.style.zIndex = zIndex;
+        group.style.pointerEvents = opacity === 0 ? 'none' : 'auto';
+        mainCircle.className = `${mainCircleBaseClass} ${ringClass}`;
+        if (isLabelVisible) { label.classList.remove('opacity-0', 'translate-y-2'); label.classList.add('opacity-100', 'translate-y-0'); }
+        else { label.classList.add('opacity-0', 'translate-y-2'); label.classList.remove('opacity-100', 'translate-y-0'); }
+        selLabel.style.opacity = isSelLabelVisible ? '1' : '0';
+        subNodes.forEach(sub => { sub.style.setProperty('--scale', subScale); sub.style.opacity = subScale === 1 ? '1' : '0'; sub.style.pointerEvents = subScale === 1 ? 'auto' : 'none'; });
+    });
+}
+
+let toastTimeout;
+function showToast(msg) {
+    const toast = document.getElementById('toast');
+    toast.textContent = msg;
+    toast.classList.remove('opacity-0', 'translate-y-4'); toast.classList.add('opacity-100', 'translate-y-0');
+    clearTimeout(toastTimeout);
+    toastTimeout = setTimeout(() => { toast.classList.remove('opacity-100', 'translate-y-0'); toast.classList.add('opacity-0', 'translate-y-4'); }, 2500);
+}
+
+updateDOM();
+</script>
+</body>
+</html>

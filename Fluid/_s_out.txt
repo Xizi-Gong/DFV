@@ -1,0 +1,3 @@
+[Taichi] version 1.7.4, llvm 15.0.1, commit b4b956fd, win, python 3.10.20
+[Taichi] Starting on arch=cuda
+[WS] shapes baseline ws://localhost:8771

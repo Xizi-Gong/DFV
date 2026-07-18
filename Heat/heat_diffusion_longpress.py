@@ -1,0 +1,781 @@
+"""
+Heat Diffusion — WebSocket 帧流（WebGL 版）
+- 不再编码 JPEG，改为发送裸 float32 温度数组 + 手形掩膜 + 粒子线段
+- 浏览器用 WebGL fragment shader 完成着色，GPU 双线性插值
+- 帧尺寸: 10B header + 78×52×4B temp + 78×52×1B mask + n_segs×20B particles ≈ 20~30 KB
+
+等温线平滑：热源幅值改为「全局压感标量」统一给定，processed_input>0 仅作
+            手形掩膜（定位置），不再用逐格电容值调制幅值（消除逐像素噪声
+            导致的散点/毛糙等温线）。
+
+手形掩膜：processed_input>0 打包成 uint8 0/255 随帧下发，前端在 OBSERVE_HOLD
+          模式下叠加一层固定浅灰半透明遮罩。高导材料下温差极弱、手形几乎看
+          不出来，这层遮罩保证任何材料下手的形状都可读。
+"""
+
+import taichi as ti
+import mmap
+import numpy as np
+import struct
+import time
+import threading
+from threading import Lock
+import random
+import asyncio
+import websockets
+import json
+import io
+
+ti.init(arch=ti.cpu)
+
+# ──────────────────────────────────────────────
+#  仿真参数
+# ──────────────────────────────────────────────
+paused      = False
+freeze_input = False
+show_gradient_lines = False
+
+# ── 长按冻结配置 ──
+LONGPRESS_DURATION  = 5          # 按住多少秒触发冻结
+longpress_start     = None         # 当前按压开始时间
+freeze_progress     = 0.0          # 冻结进度 0.0-1.0
+
+# ── 压感门控：区分「持续加热」与「触发观察」──
+# 归一化压感 = 接触区深度的 90 分位 / input_threshold，范围 0~1
+#   原始值越低 = 接触/按压越强 → 压感越大
+#   压感 <  阈值：仅持续加热，不累计进度（没有触发观察的意图）
+#   压感 >= 阈值：按压意图明确，累计长按进度直至冻结
+# 注意：默认 0.25 是个保守起点；真实触摸屏请看终端 FPS 行的 P:当前/阈值，
+#   分别轻按、重按读两个值，把阈值设在两者之间（或用 set_pressure_threshold 实时调）
+HEAT_PRESSURE_THRESHOLD = 0.55     # 可在运行时用 set_pressure_threshold 调整 0.25
+current_pressure        = 0.0      # 实时压感（用于调试 / 校准，打印在 FPS 行）
+show_isotherms      = True
+use_interpolation   = True
+brightness_scale    = 0.9
+
+n_x, n_y = 78, 52
+scatter   = 8
+res_x     = n_x * scatter   # 624（粒子坐标仍用此空间）
+res_y     = n_y * scatter   # 416
+
+SHARED_MEMORY_NAME = "shared_touch_image"
+SHARED_MEMORY_SIZE = 4068
+INPUT_WIDTH        = 78
+INPUT_HEIGHT       = 52
+INPUT_FRAME_SIZE   = INPUT_WIDTH * INPUT_HEIGHT
+
+h   = 1e-3    #2e-3
+dx  = 1
+# ── 固定物理步进（决定性，不再随机器速度漂移）──
+SIM_FPS   = 60               # 主循环/物理帧率
+SUBSTEPS  = 4                # 每帧扩散子步；↑ 则扩散更快、材料对比更强
+SIM_DT    = 1.0 / SIM_FPS
+SUB_DT    = SIM_DT / SUBSTEPS
+HEAT_RATE = 150.0     #30        # 满压加热速率 °C/s —— 调这个控制升温快慢
+
+t_max = 50                    # ← 从 300 改为 50（物理温度上限）
+t_min = -40
+t_ambient   = 0.0
+cooling_rate = 0.008
+
+MATERIAL_PRESETS = {
+    'Foam Plastic': 10,
+    'Wood':         30,
+    'Concrete':     80,
+    'Glass':       120,
+    'Steel':       250,
+    'Alum':        400,
+    'Copper':      600,
+}
+AMBIENT_PRESETS = {                # ← 改为真实物理温度
+    'Cold Winter Outdoors': -20,
+    'Freezing Point':         0,
+    'Comfortable Room':      20,
+    'Hot Summer':            35,
+    'Desert Heat':           50,
+}
+COOLING_PRESETS = {
+    'Still Air':                 0.000,
+    'Weak Airflow':              0.003,
+    'Indoor Natural Convection': 0.008,
+    'Strong Fan':                0.050,
+}
+
+current_material_name = "Glass"
+current_ambient_name  = "Freezing Point"
+current_cooling_name  = "Indoor Natural Convection"
+k = 120.0
+
+input_update_rate    = 30
+input_threshold      = 160
+heat_intensity_scale = 1.0
+
+# ── 手形掩膜的边缘平滑 ──
+# 不再下发二值掩膜，改为下发「连续的有符号接触深度场」，让前端 shader 去切等值面。
+# 硬阈值在后端做会把亚格子的边缘位置信息丢掉（78×52 的格子放大到全屏 → 多边形台阶）；
+# 下发连续场则保留了传感器本身的亚格子精度，等值线天然光滑。
+#   MASK_SMOOTH_SIGMA：高斯平滑强度，单位=格。平滑的是「场」不是「边缘」——
+#                      等值线的几何形状被磨圆，前端阈值切出来的边界依然锐利。
+#                      唯一需要调的旋钮：0 = 不平滑，0.6~1.5 是常用区间。
+#   MASK_SOFT_RANGE：  深度 → uint8 的斜率（编码精度，不是渲染边缘宽度）。
+#                      太大 → 边界附近量化出台阶；太小 → 远处饱和成 0/255，
+#                      前端 B-spline 的有效平滑范围被压窄。
+MASK_SMOOTH_SIGMA    = 0.2
+MASK_SOFT_RANGE      = 24.0
+
+max_particles          = 500
+particle_spawn_rate    = 50
+particle_min_life      = 15
+particle_max_life      = 15
+particle_speed         = 1.5
+particle_trail_length  = 8
+gradient_line_min_magnitude = 0.1
+
+isotherm_levels = 10
+isotherm_color  = 0.2
+
+# ──────────────────────────────────────────────
+#  WebSocket 配置
+# ──────────────────────────────────────────────
+WS_HOST = "localhost"
+WS_PORT = 8765
+
+latest_frame_bytes = None
+latest_frame_lock  = Lock()
+connected_clients  = set()
+clients_lock       = Lock()
+
+rebuild_matrix_flag  = False
+rebuild_matrix_lock  = Lock()
+reset_ambient_flag   = False
+reset_ambient_value  = 20.0
+reset_ambient_lock   = Lock()
+reset_sim_flag       = False
+reset_sim_lock       = Lock()
+
+
+def handle_ws_message(msg_str):
+    global k, t_ambient, cooling_rate
+    global show_gradient_lines, show_isotherms, paused, freeze_input
+    global current_material_name, current_ambient_name, current_cooling_name
+    global rebuild_matrix_flag, reset_ambient_flag, reset_ambient_value
+    global reset_sim_flag, heat_intensity_scale, isotherm_levels, brightness_scale
+    global longpress_start, freeze_progress
+    global HEAT_PRESSURE_THRESHOLD, HEAT_RATE
+
+    try:
+        msg    = json.loads(msg_str)
+        action = msg.get("action")
+        value  = msg.get("value")
+
+        if action == "set_material" and value in MATERIAL_PRESETS:
+            k = float(MATERIAL_PRESETS[value])
+            current_material_name = value
+            with rebuild_matrix_lock:
+                rebuild_matrix_flag = True
+
+        elif action == "set_ambient" and value in AMBIENT_PRESETS:
+            new_temp = float(AMBIENT_PRESETS[value])
+            t_ambient = new_temp
+            current_ambient_name = value
+            with reset_ambient_lock:
+                reset_ambient_flag  = True
+                reset_ambient_value = new_temp
+
+        elif action == "set_airflow" and value in COOLING_PRESETS:
+            cooling_rate = float(COOLING_PRESETS[value])
+            current_cooling_name = value
+
+        elif action == "toggle_streamlines":
+            show_gradient_lines = bool(value)
+
+        elif action == "toggle_isotherms":
+            show_isotherms = bool(value)
+
+        elif action == "toggle_pause":
+            paused = not paused
+
+        elif action == "set_pause":
+            paused = bool(value)
+
+        elif action == "set_freeze_input":
+            freeze_input = bool(value)
+            if not freeze_input:
+                longpress_start = None
+                freeze_progress = 0.0
+
+        elif action == "reset":
+            with reset_sim_lock:
+                reset_sim_flag = True
+
+        elif action == "set_heat_intensity":
+            heat_intensity_scale = max(0.1, min(2.0, float(value)))
+
+        elif action == "set_brightness":
+            brightness_scale = max(0.3, min(1.0, float(value)))
+
+        elif action == "set_pressure_threshold":
+            HEAT_PRESSURE_THRESHOLD = max(0.0, min(1.0, float(value)))
+            print(f"[WS] 加热压感阈值 → {HEAT_PRESSURE_THRESHOLD:.2f}")
+        
+        elif action == "set_heat_rate":
+            HEAT_RATE = max(1.0, min(120.0, float(value)))
+            print(f"[WS] 加热速率 → {HEAT_RATE:.0f} °C/s")
+
+    except Exception as e:
+        print(f"[WS] 解析错误: {e}")
+
+
+# ──────────────────────────────────────────────
+#  Spectral 调色板
+# ──────────────────────────────────────────────
+spectral_hex_full = ["#9e0142","#a00343","#a20643","#a40844","#a70b44","#a90d45","#ab0f45","#ad1245","#af1446","#b11646","#b31947","#b51b47","#b71d48","#ba2048","#bc2248","#be2449","#c02749","#c12949","#c32b4a","#c52d4a","#c7304a","#c9324a","#cb344b","#cd364b","#ce384b","#d03b4b","#d23d4b","#d33f4b","#d5414b","#d7434b","#d8454b","#da474a","#db494a","#dd4b4a","#de4d4a","#df4f4a","#e1514a","#e2534a","#e35549","#e45749","#e65949","#e75b49","#e85d49","#e95f49","#ea6149","#eb6349","#ec6549","#ed6749","#ee6a49","#ef6c49","#f06e4a","#f0704a","#f1724a","#f2744b","#f3774b","#f3794c","#f47b4d","#f47e4d","#f5804e","#f6824f","#f68550","#f78750","#f78951","#f88c52","#f88e53","#f89154","#f99356","#f99557","#f99858","#fa9a59","#fa9c5a","#fa9f5c","#fba15d","#fba35e","#fba660","#fba861","#fcaa62","#fcad64","#fcaf65","#fcb167","#fcb368","#fcb56a","#fdb86b","#fdba6d","#fdbc6e","#fdbe70","#fdc071","#fdc273","#fdc474","#fdc676","#fdc878","#fdca79","#fecc7b","#fecd7d","#fecf7e","#fed180","#fed382","#fed584","#fed685","#fed887","#feda89","#fedb8b","#fedd8d","#fede8f","#fee090","#fee192","#fee394","#fee496","#fee698","#fee79a","#fee89b","#feea9d","#feeb9f","#feeca1","#feeda2","#feefa4","#fef0a5","#fef1a7","#fef2a8","#fdf3a9","#fdf3aa","#fdf4ab","#fdf5ac","#fcf6ad","#fcf6ae","#fcf7af","#fbf7af","#fbf8b0","#faf8b0","#faf9b0","#f9f9b0","#f9f9b0","#f8f9b0","#f7faaf","#f7faaf","#f6faae","#f5faae","#f4f9ad","#f3f9ac","#f2f9ac","#f2f9ab","#f0f9aa","#eff8a9","#eef8a8","#edf8a7","#ecf7a7","#ebf7a6","#e9f6a5","#e8f6a4","#e7f5a3","#e5f5a2","#e4f4a2","#e2f3a1","#e0f3a1","#dff29f","#ddf19f","#dbf19f","#d9f09f","#d7ef9f","#d6ee9f","#d4ee9f","#d2ed9e","#d0ec9e","#cdeb9f","#cbea9f","#c9e99f","#c7e89f","#c5e89f","#c3e79f","#c0e6a0","#bee5a0","#bce4a0","#b9e3a0","#b7e2a1","#b4e1a1","#b2e0a1","#b0dfa1","#addea2","#abdda2","#a8dca2","#a6dba3","#a3daa3","#a0d9a3","#9ed8a3","#9bd7a3","#99d6a4","#96d5a4","#94d4a4","#91d3a4","#8ed1a4","#8cd0a4","#89cfa5","#87cea5","#84cda5","#82cba5","#7fcaa6","#7dc9a6","#7ac7a6","#77c6a6","#75c5a7","#73c3a7","#70c2a8","#6ec0a8","#6bbea8","#69bda9","#66bba9","#64b9aa","#62b8aa","#60b6ab","#5db4ac","#5bb2ac","#59b0ad","#57aeae","#55acae","#53aaaf","#51a8af","#50a6b0","#4ea4b1","#4ca2b1","#4ba0b2","#499db2","#489bb3","#4799b3","#4697b3","#4595b4","#4492b4","#4390b4","#438eb4","#428cb5","#4289b5","#4287b4","#4285b4","#4283b4","#4280b4","#437eb3","#437cb3","#447ab3","#4577b2","#4575b1","#4673b1","#4771b0","#486eaf","#4a6caf","#4b6aae","#4c68ad","#4e65ac","#4f63ab","#5161aa","#525fa9","#545ca8","#555aa7","#5758a6","#5956a5","#5b53a4","#5c51a3","#5e4fa2"]
+spectral_hex = spectral_hex_full[30:231]
+
+def hex_to_rgb(h):
+    h = h.lstrip('#')
+    return [int(h[i:i+2], 16) / 255.0 for i in (0, 2, 4)]
+
+spectral_colors_list = [hex_to_rgb(c) for c in spectral_hex]
+n_colors = len(spectral_colors_list)
+spectral_lut = ti.Vector.field(3, ti.f32, shape=n_colors)
+for i, rgb in enumerate(spectral_colors_list):
+    spectral_lut[i] = ti.Vector(rgb)
+
+# ── 预构建 LUT 初始化消息（连接时一次性发送给浏览器）──
+_lut_flat = []
+for _rgb in spectral_colors_list:
+    _lut_flat.extend([round(_rgb[0]*255), round(_rgb[1]*255), round(_rgb[2]*255)])
+LUT_INIT_MSG = json.dumps({
+    "type": "lut_init",
+    "grid_w": n_x,
+    "grid_h": n_y,
+    "tmin":   float(t_min),
+    "tmax":   float(t_max),
+    "lut":    _lut_flat          # flat uint8 RGB array, len = n_colors * 3
+})
+print(f"[Init] LUT message size: {len(LUT_INIT_MSG)//1024} KB, {n_colors} colors")
+
+
+async def ws_handler(websocket):
+    # 先发 LUT（浏览器需要它才能初始化 WebGL 纹理）
+    try:
+        await websocket.send(LUT_INIT_MSG)
+    except Exception as e:
+        print(f"[WS] LUT send failed: {e}")
+        return
+
+    with clients_lock:
+        connected_clients.add(websocket)
+    print(f"[WS] 客户端连接: {websocket.remote_address}  在线: {len(connected_clients)}")
+    try:
+        async for message in websocket:
+            if isinstance(message, str):
+                handle_ws_message(message)
+    except websockets.exceptions.ConnectionClosed:
+        pass
+    finally:
+        with clients_lock:
+            connected_clients.discard(websocket)
+        print(f"[WS] 客户端断开  在线: {len(connected_clients)}")
+
+
+async def frame_broadcaster():
+    while True:
+        await asyncio.sleep(1 / 30)
+        frame = None
+        with latest_frame_lock:
+            frame = latest_frame_bytes
+        if frame is None:
+            continue
+        with clients_lock:
+            targets = list(connected_clients)
+        if not targets:
+            continue
+        dead = []
+        for ws in targets:
+            try:
+                await ws.send(frame)
+            except Exception:
+                dead.append(ws)
+        if dead:
+            with clients_lock:
+                for ws in dead:
+                    connected_clients.discard(ws)
+
+
+async def ws_server_main():
+    async with websockets.serve(ws_handler, WS_HOST, WS_PORT):
+        print(f"[WS] 服务器启动  ws://{WS_HOST}:{WS_PORT}")
+        await frame_broadcaster()
+
+
+def ws_thread_func():
+    asyncio.run(ws_server_main())
+
+
+# ──────────────────────────────────────────────
+#  Taichi 场
+# ──────────────────────────────────────────────
+gradient_magnitude = ti.field(ti.f32, shape=(n_y, n_x))
+gradient_x         = ti.field(ti.f32, shape=(n_y, n_x))
+gradient_y         = ti.field(ti.f32, shape=(n_y, n_x))
+
+n_total = n_x * n_y
+t_n     = ti.field(ti.f32, shape=n_total)
+t_np1   = ti.field(ti.f32, shape=n_total)
+
+input_data      = ti.field(ti.f32, shape=(INPUT_HEIGHT, INPUT_WIDTH))
+processed_input = ti.field(ti.f32, shape=(n_y, n_x))
+
+data_lock          = Lock()
+new_data_available = False
+has_touch_current  = False
+last_touch_nd      = None          # 保存最后一帧有触摸的输入数据
+had_touch_prev     = False         # 用于后端检测抬手瞬间
+
+precomputed_solver = None
+
+# ──────────────────────────────────────────────
+#  梯度插值 + 粒子系统
+# ──────────────────────────────────────────────
+def bilinear_interpolate_gradient(grad_x_np, grad_y_np, grid_x, grid_y):
+    x0 = int(np.floor(grid_x)); y0 = int(np.floor(grid_y))
+    x1 = x0 + 1;                y1 = y0 + 1
+    x0 = max(0, min(x0, n_x-1)); x1 = max(0, min(x1, n_x-1))
+    y0 = max(0, min(y0, n_y-1)); y1 = max(0, min(y1, n_y-1))
+    fx = grid_x - int(np.floor(grid_x))
+    fy = grid_y - int(np.floor(grid_y))
+    gx = ((1-fx)*(1-fy)*grad_x_np[y0,x0] + fx*(1-fy)*grad_x_np[y0,x1]
+         +(1-fx)*fy*grad_x_np[y1,x0]      + fx*fy*grad_x_np[y1,x1])
+    gy = ((1-fx)*(1-fy)*grad_y_np[y0,x0] + fx*(1-fy)*grad_y_np[y0,x1]
+         +(1-fx)*fy*grad_y_np[y1,x0]      + fx*fy*grad_y_np[y1,x1])
+    return gx, gy
+
+
+class FlowParticle:
+    def __init__(self, x, y, life):
+        self.x = x; self.y = y
+        self.life = life; self.max_life = life
+        self.trail = [(x, y)]
+        self.dying = False; self.fade_alpha = 1.0; self.fade_speed = 0.15
+
+    def update(self, grad_x_np, grad_y_np, min_mag):
+        if self.dying:
+            self.fade_alpha -= self.fade_speed
+            if len(self.trail) > 1 and self.fade_alpha < 0.7:
+                self.trail.pop(0)
+            return
+        gx, gy = bilinear_interpolate_gradient(grad_x_np, grad_y_np, self.x/scatter, self.y/scatter)
+        mag = np.sqrt(gx*gx + gy*gy)
+        if mag > min_mag:
+            speed = min(mag * particle_speed, particle_speed * 3.0)
+            self.x -= (gx/mag)*speed; self.y -= (gy/mag)*speed
+            self.trail.append((self.x, self.y))
+            if len(self.trail) > particle_trail_length: self.trail.pop(0)
+        else:
+            self.dying = True
+        if not (0 <= self.x < res_x and 0 <= self.y < res_y): self.dying = True
+        self.life -= 1
+        if self.life <= 0: self.dying = True
+
+    def is_alive(self):
+        return (self.fade_alpha > 0 and len(self.trail) > 1) if self.dying else (0 <= self.x < res_x and 0 <= self.y < res_y)
+
+    def seg_alpha(self, idx, total):
+        return self.fade_alpha if total <= 1 else (0.2 + 0.8*(idx/(total-1)))*self.fade_alpha
+
+
+class ParticleSystem:
+    def __init__(self):
+        self.particles=[]; self.warmup_frames=0
+        self.warmup_duration=90; self.warmup_delay=15
+
+    def reset(self): self.particles=[]; self.warmup_frames=0
+
+    def spawn(self, grad_mag_np, num, max_count):
+        if len(self.particles) >= max_count: self.warmup_frames = self.warmup_duration; return
+        if self.warmup_frames < self.warmup_delay: self.warmup_frames += 1; return
+        prob = ((self.warmup_frames-self.warmup_delay)/(self.warmup_duration-self.warmup_delay))**2 \
+               if self.warmup_frames < self.warmup_duration else 1.0
+        if self.warmup_frames < self.warmup_duration: self.warmup_frames += 1
+        idx_list = np.argwhere(grad_mag_np > gradient_line_min_magnitude)
+        if len(idx_list) == 0: return
+        for _ in range(num):
+            if len(self.particles) >= max_count: break
+            if random.random() < prob:
+                i,j = random.choice(idx_list)
+                x = (j + random.random())*scatter; y = (i + random.random())*scatter
+                life = random.randint(particle_min_life, particle_max_life)
+                if prob < 1.0: life -= random.randint(0, life//2)
+                self.particles.append(FlowParticle(x, y, life))
+
+    def update(self, gx_np, gy_np, gm_np):
+        self.particles = [p for p in self.particles if p.is_alive()]
+        for p in self.particles: p.update(gx_np, gy_np, gradient_line_min_magnitude)
+        self.spawn(gm_np, particle_spawn_rate, max_particles)
+
+
+particle_system = ParticleSystem()
+
+
+# ──────────────────────────────────────────────
+#  Taichi 核函数
+# ──────────────────────────────────────────────
+@ti.func
+def ind(i, j): return i * n_x + j
+
+
+@ti.kernel
+def fillD(A: ti.types.sparse_matrix_builder()):
+    for i, j in ti.ndrange(n_y, n_x):
+        cnt = 0
+        if i-1>=0:   A[ind(i,j),ind(i-1,j)]+=1; cnt+=1
+        if i+1<n_y:  A[ind(i,j),ind(i+1,j)]+=1; cnt+=1
+        if j-1>=0:   A[ind(i,j),ind(i,j-1)]+=1; cnt+=1
+        if j+1<n_x:  A[ind(i,j),ind(i,j+1)]+=1; cnt+=1
+        A[ind(i,j),ind(i,j)] += -cnt
+
+
+@ti.kernel
+def fillI(A: ti.types.sparse_matrix_builder()):
+    for i, j in ti.ndrange(n_y, n_x):
+        A[ind(i,j),ind(i,j)] += 1
+
+
+def buildMatrices():
+    global precomputed_solver
+    Db = ti.linalg.SparseMatrixBuilder(n_total, n_total, max_num_triplets=n_total*5)
+    Ib = ti.linalg.SparseMatrixBuilder(n_total, n_total, max_num_triplets=n_total)
+    fillD(Db); fillI(Ib)
+    D = Db.build(); I = Ib.build()
+    c = h * k / dx**2
+    M = I - c * D
+    precomputed_solver = ti.linalg.SparseSolver(solver_type="LLT")
+    precomputed_solver.analyze_pattern(M)
+    precomputed_solver.factorize(M)
+    print(f"矩阵预计算完成  k={k:.0f}  c={c:.4f}")
+
+
+@ti.kernel
+def init_fields():
+    for i, j in ti.ndrange(n_y, n_x):
+        t_n[ind(i,j)] = t_min; t_np1[ind(i,j)] = t_min
+        processed_input[i,j] = 0.0
+        gradient_magnitude[i,j] = 0.0
+        gradient_x[i,j] = 0.0; gradient_y[i,j] = 0.0
+
+
+@ti.kernel
+def reset_temperature_to_ambient(ambient: ti.f32):
+    for i, j in ti.ndrange(n_y, n_x):
+        t_n[ind(i,j)] = ambient; t_np1[ind(i,j)] = ambient
+
+
+@ti.kernel
+def compute_gradients():
+    for i, j in ti.ndrange(n_y, n_x):
+        gx = (t_np1[ind(i,j+1)]-t_np1[ind(i,j-1)])/2.0 if 0<j<n_x-1 else \
+             (t_np1[ind(i,j+1)]-t_np1[ind(i,j)] if j==0 else t_np1[ind(i,j)]-t_np1[ind(i,j-1)])
+        gy = (t_np1[ind(i+1,j)]-t_np1[ind(i-1,j)])/2.0 if 0<i<n_y-1 else \
+             (t_np1[ind(i+1,j)]-t_np1[ind(i,j)] if i==0 else t_np1[ind(i,j)]-t_np1[ind(i-1,j)])
+        gradient_x[i,j]=gx; gradient_y[i,j]=gy
+        gradient_magnitude[i,j]=ti.sqrt(gx*gx+gy*gy)
+
+
+@ti.kernel
+def process_input_kernel(threshold: ti.f32, scale: ti.f32):
+    # processed_input 现在只作「手形掩膜」用：>0 即被加热的格子。
+    # 其数值幅值在 update_temp_kernel 中不再使用（幅值由全局 pressure 给定）。
+    # 同时它也是下发给前端做半透明遮罩的掩膜来源（见 encode_temp_frame）。
+    for i, j in ti.ndrange(n_y, n_x):
+        processed_input[i,j] = 0.0
+    for i, j in ti.ndrange(n_y, n_x):
+        v = input_data[n_y-1-i, j]
+        if v < threshold:
+            processed_input[i,j] = (threshold - v) * scale
+
+
+@ti.kernel
+def update_temp_kernel(ambient: ti.f32, cool: ti.f32, pressure: ti.f32,
+                       p_threshold: ti.f32, heat_rate: ti.f32, dt: ti.f32):
+    # ── 加热模型：功率注入，朝 37°C（体温）弛豫，不再硬钳上限 ──
+    #   稳态由「注入功率 == 向邻居扩散散失」决定：高 k 散得快→源区更凉；低 k 聚热→更烫。
+    #   手作为 37°C 热库：环境冷则加热、环境热(>37)则降温 → 任意 ambient 下手印都可见。
+    for i, j in ti.ndrange(n_y, n_x):
+        cooled = t_np1[ind(i,j)] + (ambient - t_np1[ind(i,j)]) * cool
+        if processed_input[i,j] > 0:
+            blend = ti.min(pressure / ti.max(p_threshold, 1e-6), 1.0)
+            delta = 37.0 - cooled
+            step  = ti.min(heat_rate * blend * dt, ti.abs(delta))
+            t_np1[ind(i,j)] = cooled + (1.0 if delta > 0 else -1.0) * step
+        else:
+            t_np1[ind(i,j)] = cooled
+
+
+# ──────────────────────────────────────────────
+#  帧编码（核心改动）：裸温度 + 手形掩膜 + 粒子线段，无 JPEG
+# ──────────────────────────────────────────────
+def _gaussian_blur_2d(a, sigma):
+    """可分离高斯模糊，边界用 edge 复制。纯 numpy，无 scipy 依赖。
+    52×78 的场 + sigma=1（7 taps × 2 pass）在 30 fps 下开销可忽略。"""
+    a = a.astype(np.float32)
+    if sigma <= 0.0:
+        return a
+    r = max(1, int(np.ceil(3.0 * sigma)))
+    x = np.arange(-r, r + 1, dtype=np.float32)
+    kern = np.exp(-0.5 * (x / sigma) ** 2)
+    kern /= kern.sum()
+
+    p = np.pad(a, ((0, 0), (r, r)), mode='edge')          # 横向
+    out = np.zeros_like(a)
+    for t, kk in enumerate(kern):
+        out += kk * p[:, t:t + a.shape[1]]
+
+    p = np.pad(out, ((r, r), (0, 0)), mode='edge')        # 纵向
+    out = np.zeros_like(a)
+    for t, kk in enumerate(kern):
+        out += kk * p[t:t + a.shape[0], :]
+    return out
+
+
+def encode_temp_frame():
+    """
+    Binary layout:
+      [4B]  n_segs     uint32  粒子线段数量
+      [4B]  brightness float32
+      [1B]  has_touch  uint8   当前帧是否有触摸 (0/1)
+      [1B]  progress   uint8   长按冻结进度 (0-255)
+      [n_y * n_x * 4B] temperature float32 row-major (row0 = i=0 = Taichi bottom)
+      [n_y * n_x * 1B] hand_mask   uint8   手形掩膜，与温度场同网格同朝向。
+                                           这是「平滑后的有符号接触深度场」，不是二值：
+                                             128 = 手形边界（等值面）
+                                            >128 = 接触区内部，值越大按得越深
+                                            <128 = 外部
+                                           前端在 OBSERVE_HOLD 模式下做 B-spline 重建，
+                                           再在 128/255 上切出锐利边缘。
+      [n_segs * 20B]   segments: x0,y0,x1,y1,alpha float32 (normalized 0-1, y: 0=bottom)
+    Total typical: 10 + 16224 + 4056 + ~500*20 ≈ 30 KB   （字节数与二值掩膜时代完全一致）
+
+    注意：mask 必须放在 temp 之后、segments 之前 —— segments 是变长的，只能最后解析。
+    """
+    temp_data = t_np1.to_numpy().reshape(n_y, n_x).astype(np.float32)
+
+    # ── 手形掩膜 ──
+    # 直接从 input_data 取原始传感器场（而不是 processed_input）：后者在 <threshold 处
+    # 被 clamp 到 0，外侧的符号信息已经丢了，做不出有符号场。
+    # input_data 存的是归一化值 (raw_uint8/255)，且比温度场多一次 y 翻转
+    #（见 process_input_kernel 里的 n_y-1-i），这里 [::-1,:] 补回来。
+    # 冻结期间 input_data 停更 → 掩膜保持锁定那一刻的手形，正是 HOLD 模式要显示的东西。
+    raw   = input_data.to_numpy()[::-1, :].astype(np.float32) * 255.0
+    depth = input_threshold - raw            # >0 = 接触区内部，0 = 边界
+    depth = _gaussian_blur_2d(depth, MASK_SMOOTH_SIGMA)
+    mask_data = np.ascontiguousarray(
+        np.clip(128.0 + depth * (127.0 / MASK_SOFT_RANGE), 0.0, 255.0).astype(np.uint8))
+
+    segs = []
+    if show_gradient_lines:
+        for p in particle_system.particles:
+            trail = p.trail
+            n_pts = len(trail)
+            for idx in range(n_pts - 1):
+                x0, y0 = trail[idx]
+                x1, y1 = trail[idx + 1]
+                a = float(p.seg_alpha(idx, n_pts - 1))
+                # normalize: x→[0,1] left-right, y→[0,1] bottom-top
+                segs.append((float(x0)/res_x, float(y0)/res_y,
+                             float(x1)/res_x, float(y1)/res_y, a))
+
+    n_s = len(segs)
+    with data_lock:
+        touch_byte = 1 if has_touch_current else 0
+        progress_byte = int(freeze_progress * 255)
+    header   = struct.pack('<IfBB', n_s, brightness_scale, touch_byte, progress_byte)
+    t_bytes  = temp_data.tobytes()
+    m_bytes  = mask_data.tobytes()
+    s_bytes  = np.array(segs, dtype=np.float32).tobytes() if n_s > 0 else b''
+    return header + t_bytes + m_bytes + s_bytes
+
+
+def read_shared_memory():
+    global new_data_available, has_touch_current, last_touch_nd
+    global had_touch_prev, freeze_input
+    global longpress_start, freeze_progress
+    global current_pressure
+    HEADER_SIZE = 12
+    mmf = None
+    try:
+        import os
+        if os.name == 'nt':
+            try: mmf = mmap.mmap(0, SHARED_MEMORY_SIZE, SHARED_MEMORY_NAME, access=mmap.ACCESS_READ)
+            except Exception as e: print(f"共享内存失败: {e}"); return
+        else:
+            fp = f"/tmp/{SHARED_MEMORY_NAME}"
+            if not os.path.exists(fp): print(f"共享内存文件不存在: {fp}"); return
+            with open(fp,'r+b') as f: mmf = mmap.mmap(f.fileno(), SHARED_MEMORY_SIZE, access=mmap.ACCESS_READ)
+        print("成功连接到共享内存")
+        while True:
+            try:
+                mmf.seek(HEADER_SIZE)
+                raw = mmf.read(INPUT_FRAME_SIZE)
+                if len(raw) >= INPUT_FRAME_SIZE:
+                    raw_uint8 = np.frombuffer(raw[:INPUT_FRAME_SIZE], dtype=np.uint8).copy()
+                    contact_mask = raw_uint8 < input_threshold
+                    contact_area = int(np.sum(contact_mask))
+                    touch_detected = contact_area > 5
+                    # ── 归一化压感：接触区深度的 90 分位 / 阈值，范围 0~1 ──
+                    #    原始值越低 = 按得越重 → 深度越大
+                    #    用 90 分位（接触区内较深的部分）：真实反映「按得有多重」，
+                    #    既不像「均值」被边缘浅接触格子拉低，又比「单格峰值」抗噪
+                    if contact_area > 0:
+                        depth = input_threshold - raw_uint8[contact_mask].astype(np.float32)
+                        pressure = float(np.percentile(depth, 90)) / float(input_threshold)
+                    else:
+                        pressure = 0.0
+                    nd = raw_uint8.reshape(INPUT_HEIGHT,INPUT_WIDTH).astype(np.float32)/255.0
+                    with data_lock:
+                        has_touch_current = touch_detected
+                        current_pressure  = pressure
+
+                        if freeze_input:
+                            # 已冻结：只更新触摸状态（前端用来检测恢复）
+                            pass
+                        elif touch_detected:
+                            # 持续加热：始终更新输入（无论轻按重按）
+                            try:
+                                input_data.from_numpy(nd); new_data_available = True
+                            except: pass
+                            # ── 压感门控 ──
+                            if pressure >= HEAT_PRESSURE_THRESHOLD:
+                                # 重按：意图明确 → 累计长按进度
+                                if longpress_start is None:
+                                    longpress_start = time.time()
+                                elapsed = time.time() - longpress_start
+                                freeze_progress = min(1.0, elapsed / LONGPRESS_DURATION)
+                                # 达到时长：冻结「当前帧」，保持连续（不回跳到峰值帧）
+                                if freeze_progress >= 1.0:
+                                    freeze_input = True
+                                    freeze_progress = 1.0
+                                    try:
+                                        input_data.from_numpy(nd)
+                                        new_data_available = True
+                                    except: pass
+                            else:
+                                # 轻按：仅持续加热，不累计进度（没有触发观察的意图）
+                                longpress_start = None
+                                freeze_progress = 0.0
+                        else:
+                            # 触摸消失但未冻结：重置计时
+                            try:
+                                input_data.from_numpy(nd); new_data_available = True
+                            except: pass
+                            longpress_start = None
+                            freeze_progress = 0.0
+
+                        had_touch_prev = touch_detected
+                time.sleep(1/input_update_rate)
+            except: time.sleep(0.1)
+    except Exception as e: print(f"共享内存初始化失败: {e}")
+    finally:
+        if mmf: mmf.close()
+
+
+# ──────────────────────────────────────────────
+#  启动
+# ──────────────────────────────────────────────
+init_fields()
+buildMatrices()
+
+threading.Thread(target=read_shared_memory, daemon=True).start()
+threading.Thread(target=ws_thread_func, daemon=True).start()
+
+print("\n" + "="*60)
+print(f"WebSocket 帧流服务器: ws://{WS_HOST}:{WS_PORT}")
+print("在浏览器中打开 ui_stream.html")
+print("按 Ctrl+C 退出")
+print("="*60 + "\n")
+
+frame_count    = 0
+last_fps_time  = time.time()
+last_frame_enc = time.time()
+FPS_ENCODE_CAP = 60
+
+last_sim_time = time.time()
+
+try:
+    while True:
+        # ── 节流到固定 SIM_FPS：物理步进不再随 CPU 速度乱飙 ──
+        _now = time.time()
+        _elapsed = _now - last_sim_time
+        if _elapsed < SIM_DT:
+            time.sleep(SIM_DT - _elapsed)
+        last_sim_time = time.time()
+
+        # ── flag 处理 ──
+        with rebuild_matrix_lock:
+            if rebuild_matrix_flag:
+                rebuild_matrix_flag = False
+                particle_system.reset(); buildMatrices()
+
+        with reset_ambient_lock:
+            if reset_ambient_flag:
+                reset_ambient_flag = False
+                reset_temperature_to_ambient(float(reset_ambient_value))
+                particle_system.reset()
+
+        with reset_sim_lock:
+            if reset_sim_flag:
+                reset_sim_flag = False
+                init_fields(); particle_system.reset()
+
+        # ── 处理触摸输入 ──
+        with data_lock:
+            do_input = new_data_available
+            if do_input: new_data_available = False
+        if do_input:
+            process_input_kernel(input_threshold/255.0, heat_intensity_scale)
+
+        # ── 仿真步进 ──
+        if not paused:
+            # 取本帧用于加热幅值的全局压感标量
+            with data_lock:
+                _pressure = current_pressure
+                _frozen   = freeze_input
+            # 冻结观察期间：手形已锁定，强制 blend=1.0（满功率），
+            # 即使手抬起 pressure→0 也保持热源不冷却，可继续观察扩散。
+            p_eff = HEAT_PRESSURE_THRESHOLD if _frozen else _pressure
+            for _ in range(SUBSTEPS):
+                t_np1.from_numpy(precomputed_solver.solve(t_n))
+                update_temp_kernel(t_ambient, cooling_rate, p_eff,
+                                   HEAT_PRESSURE_THRESHOLD, HEAT_RATE, SUB_DT)
+                t_n.copy_from(t_np1)
+            compute_gradients()
+
+        # ── 粒子物理更新（不再 draw，只更新位置供编码）──
+        if show_gradient_lines and not paused:
+            gm = gradient_magnitude.to_numpy()
+            gx = gradient_x.to_numpy()
+            gy = gradient_y.to_numpy()
+            particle_system.update(gx, gy, gm)
+
+        # ── 编码温度帧（无 JPEG，直接打包 float32）──
+        now = time.time()
+        if now - last_frame_enc >= 1/FPS_ENCODE_CAP:
+            frame_bytes = encode_temp_frame()
+            with latest_frame_lock:
+                latest_frame_bytes = frame_bytes
+            last_frame_enc = now
+
+        # ── FPS 统计 ──
+        frame_count += 1
+        if now - last_fps_time >= 1.0:
+            fps = frame_count / (now - last_fps_time)
+            with clients_lock:
+                nc = len(connected_clients)
+            t_arr = t_np1.to_numpy()
+            print(f"FPS:{fps:.0f}  clients:{nc}  P:{current_pressure:.2f}/{HEAT_PRESSURE_THRESHOLD:.2f}  HR:{HEAT_RATE:.0f}  T:[{t_arr.min():.1f}, {t_arr.max():.1f}]  ambient={t_ambient:.0f}"
+                  f"  {current_material_name} | {current_ambient_name} | {current_cooling_name}")
+            frame_count = 0; last_fps_time = now
+
+except KeyboardInterrupt:
+    print("\n退出")

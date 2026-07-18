@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Wind Field Simulation</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  .spring-transition { transition: all 0.7s cubic-bezier(0.34, 1.56, 0.64, 1); }
+  .fade-transition    { transition: opacity 0.4s ease, transform 0.4s ease; }
+  .sub-node           { transform: translate(calc(-50% + var(--sx,0px)), calc(-50% + var(--sy,0px))) scale(var(--scale,0)); }
+  body { -webkit-font-smoothing: antialiased; overflow: hidden; background: #0a0a0a; touch-action: manipulation; }
+
+  /* WS dot */
+  .ws-dot { width:8px; height:8px; border-radius:50%; display:inline-block; margin-right:6px; background:#94a3b8; transition:background .4s; }
+  .ws-dot.connected    { background:#34d399; box-shadow:0 0 6px #34d399; }
+  .ws-dot.disconnected { background:#f87171; }
+  .ws-dot.connecting   { background:#fbbf24; animation:pulse 1s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1}50%{opacity:.3} }
+
+  /* Sim stage */
+  #sim-stage { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:0; width:585px; height:390px; }
+  #sim-canvas,
+  #overlay-canvas { position:absolute; inset:0; width:100%; height:100%; display:block; }
+  #sim-canvas { z-index:0; image-rendering:pixelated; }
+  #overlay-canvas { z-index:2; pointer-events:none; }
+
+  /* Placeholder */
+  .placeholder { position:fixed; inset:0; z-index:2; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px;
+    background:radial-gradient(ellipse at top, #f8fafc, #e2e8f0); pointer-events:none; transition:opacity .6s; }
+  .placeholder.hidden { opacity:0; pointer-events:none; }
+  .spinner { width:32px; height:32px; border:3px solid #cbd5e1; border-top-color:#64748b; border-radius:50%; animation:spin .9s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+
+  /* Reynolds badge */
+  #re-badge {
+    position:fixed; top:16px; right:200px; z-index:55;
+    background:rgba(255,255,255,0.6); backdrop-filter:blur(12px);
+    border:1px solid rgba(255,255,255,0.55); color:#475569;
+    font-size:11px; letter-spacing:.1em; padding:5px 14px; border-radius:999px;
+    font-family:'SF Mono','Cascadia Code',monospace;
+    box-shadow:0 2px 10px rgba(0,0,0,0.06);
+    transition:all .3s;
+  }
+  #re-badge .re-num { color:#0891b2; font-weight:700; }
+
+  /* Material badge (top-left) */
+  #material-badge {
+    position:fixed; top:16px; left:20px; z-index:55;
+    background:rgba(255,255,255,0.6); backdrop-filter:blur(12px);
+    border:1px solid rgba(255,255,255,0.55); color:#475569;
+    font-size:11px; letter-spacing:.1em; padding:5px 14px; border-radius:999px;
+    font-family:'SF Mono','Cascadia Code',monospace;
+    box-shadow:0 2px 10px rgba(0,0,0,0.06); transition:all .4s;
+  }
+
+  /* Speed slider panel */
+  #speed-panel {
+    position:fixed; bottom:24px; left:50%; transform:translateX(-50%);
+    display:flex; align-items:center; gap:14px; z-index:50;
+    background:rgba(255,255,255,0.65); backdrop-filter:blur(14px);
+    border:1px solid rgba(255,255,255,0.55);
+    border-radius:999px; padding:10px 22px;
+    font-family:'SF Mono','Cascadia Code',monospace;
+    color:#475569; font-size:11px; letter-spacing:.08em;
+    box-shadow:0 8px 30px rgba(0,0,0,0.08);
+  }
+  #speed-panel label { white-space:nowrap; color:#64748b; letter-spacing:.12em; }
+  #speed-val {
+    min-width:40px; text-align:center;
+    color:#0891b2; font-weight:700; font-size:13px; letter-spacing:.05em;
+  }
+  #speed-unit { color:#94a3b8; font-size:10px; }
+
+  /* Custom range input */
+  input[type=range] {
+    -webkit-appearance:none; appearance:none;
+    width:220px; height:4px; border-radius:999px; outline:none; cursor:pointer;
+    background:linear-gradient(to right, #22d3ee var(--pct,30%), rgba(148,163,184,0.35) var(--pct,30%));
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance:none; appearance:none;
+    width:16px; height:16px; border-radius:50%; cursor:pointer;
+    background:#22d3ee; box-shadow:0 0 8px rgba(34,211,238,0.5);
+    border:2px solid #ffffff;
+    transition:transform .2s,box-shadow .2s;
+  }
+  input[type=range]::-webkit-slider-thumb:hover { transform:scale(1.2); box-shadow:0 0 14px rgba(34,211,238,0.7); }
+  input[type=range]::-moz-range-thumb {
+    width:16px; height:16px; border-radius:50%; cursor:pointer;
+    background:#22d3ee; box-shadow:0 0 8px rgba(34,211,238,0.5);
+    border:2px solid #ffffff;
+  }
+  input[type=range]:focus { outline:none; }
+</style>
+<script src="../gesture_lock.js"></script>
+</head>
+
+<body class="text-slate-800 h-screen w-full relative">
+
+<!-- Sim canvas -->
+<div id="sim-stage">
+  <canvas id="sim-canvas" width="585" height="390"></canvas>
+  <canvas id="overlay-canvas" width="585" height="390"></canvas>
+</div>
+
+<!-- Placeholder -->
+<div class="placeholder" id="placeholder">
+  <div class="spinner"></div>
+  <span style="font-size:13px;letter-spacing:.12em;color:#4a7fa5">Connecting…</span>
+</div>
+
+<!-- WS status (top-right) -->
+<div id="ws-status-bar" class="absolute top-4 right-5 flex items-center text-xs font-medium tracking-wide z-50 backdrop-blur-md px-3 py-1.5 rounded-full border shadow-[0_2px_10px_rgba(0,0,0,0.06)]"
+     style="background:rgba(255,255,255,0.6);border-color:rgba(255,255,255,0.5);color:#64748b;">
+  <span id="ws-dot" class="ws-dot connecting"></span>
+  <span id="ws-label">Connecting</span>
+</div>
+
+<!-- Reynolds number badge -->
+
+<div id="re-badge">Re = <span id="re-value" class="re-num">—</span></div>
+
+<!-- Material badge -->
+<div id="material-badge">air</div>
+
+<!-- Radial menu container -->
+<div id="app" class="relative w-full h-full"></div>
+
+<!-- Inlet speed slider -->
+<div id="speed-panel">
+  <label>INLET</label>
+  <input type="range" id="speed-slider" min="0.01" max="2.0" step="0.01" value="1.0">
+  <span id="speed-val">5.0</span>
+  <span id="speed-unit">m/s</span>
+</div>
+
+<!-- Toast -->
+<div id="toast" class="fixed bottom-20 left-1/2 -translate-x-1/2 backdrop-blur-xl border text-slate-700 px-6 py-3 rounded-full shadow-[0_8px_30px_rgba(0,0,0,0.08)] opacity-0 pointer-events-none transition-all duration-500 transform translate-y-4 z-50 text-sm tracking-wider font-medium"
+     style="background:rgba(255,255,255,0.7);border-color:rgba(255,255,255,0.5);">
+  Action Hint
+</div>
+
+<script>
+document.addEventListener('touchmove', e => { if(e.touches.length===1)e.preventDefault(); },{passive:false});
+document.addEventListener('gesturestart', e=>e.preventDefault());
+
+// ── Canvas resize ────────────────────────────────────────────────────────────
+let simW = 585, simH = 390;
+const simStage = document.getElementById('sim-stage');
+const simCanvas = document.getElementById('sim-canvas');
+const simCtx    = simCanvas.getContext('2d');
+const overlayCanvas = document.getElementById('overlay-canvas');
+const overlayCtx = overlayCanvas.getContext('2d');
+let currentArrows = [];
+
+function syncCanvasBuffers() {
+  if (simCanvas.width !== simW) simCanvas.width = simW;
+  if (simCanvas.height !== simH) simCanvas.height = simH;
+  if (overlayCanvas.width !== simW) overlayCanvas.width = simW;
+  if (overlayCanvas.height !== simH) overlayCanvas.height = simH;
+}
+
+function resizeCanvas() {
+  const scale = Math.min(window.innerWidth/simW, window.innerHeight/simH) * 0.97;
+  simStage.style.width  = Math.round(simW*scale)+'px';
+  simStage.style.height = Math.round(simH*scale)+'px';
+}
+
+function applySimulationSize(width, height) {
+  const nextW = Number(width);
+  const nextH = Number(height);
+  if (!Number.isFinite(nextW) || !Number.isFinite(nextH) || nextW <= 0 || nextH <= 0) return;
+  simW = Math.round(nextW);
+  simH = Math.round(nextH);
+  syncCanvasBuffers();
+  resizeCanvas();
+  drawArrows(currentArrows);
+}
+
+function drawArrows(flat) {
+  currentArrows = Array.isArray(flat) ? flat : [];
+  syncCanvasBuffers();
+  overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+  if (!currentArrows.length) return;
+
+  const W = overlayCanvas.width;
+  const H = overlayCanvas.height;
+  overlayCtx.save();
+  overlayCtx.lineCap = 'round';
+  overlayCtx.lineJoin = 'round';
+  overlayCtx.lineWidth = 2.0;
+  overlayCtx.shadowColor = 'rgba(0,0,0,0.45)';
+  overlayCtx.shadowBlur = 2;
+
+  for (let i = 0; i + 4 < currentArrows.length; i += 5) {
+    const ox = currentArrows[i];
+    const oy = currentArrows[i + 1];
+    const dx = currentArrows[i + 2];
+    const dy = currentArrows[i + 3];
+    const mag = currentArrows[i + 4];
+    const t = Math.max(0, Math.min(1, mag / 500));
+    const r = Math.round(68 + t * 90);
+    const g = Math.round(190 + t * 55);
+    const b = Math.round(255 - t * 70);
+    const color = `rgba(${r},${g},${b},0.95)`;
+
+    const sx = ox * W;
+    const sy = (1 - oy) * H;
+    const ex = (ox + dx) * W;
+    const ey = (1 - (oy + dy)) * H;
+    const len = Math.hypot(ex - sx, ey - sy);
+    if (len < 3) continue;
+
+    overlayCtx.strokeStyle = color;
+    overlayCtx.fillStyle = color;
+    overlayCtx.beginPath();
+    overlayCtx.moveTo(sx, sy);
+    overlayCtx.lineTo(ex, ey);
+    overlayCtx.stroke();
+
+    const ux = (ex - sx) / len;
+    const uy = (ey - sy) / len;
+    const px = -uy;
+    const py = ux;
+    const ah = Math.min(8, Math.max(5, len * 0.42));
+    const aw = ah * 0.45;
+
+    overlayCtx.beginPath();
+    overlayCtx.moveTo(ex, ey);
+    overlayCtx.lineTo(ex - ah * ux + aw * px, ey - ah * uy + aw * py);
+    overlayCtx.lineTo(ex - ah * ux - aw * px, ey - ah * uy - aw * py);
+    overlayCtx.closePath();
+    overlayCtx.fill();
+  }
+  overlayCtx.restore();
+}
+
+window.addEventListener('resize', () => {
+  resizeCanvas();
+  drawArrows(currentArrows);
+});
+syncCanvasBuffers();
+resizeCanvas();
+
+// ── JPEG frame renderer ──────────────────────────────────────────────────────
+const placeholder = document.getElementById('placeholder');
+let _decoding = false, _pendingBuf = null;
+function onBinaryFrame(buffer) {
+  // 正在解码时只保留最新一帧、丢弃中间帧，避免解码速度跟不上导致积压越拖越卡
+  if (_decoding) { _pendingBuf = buffer; return; }
+  _decoding = true;
+  createImageBitmap(new Blob([buffer],{type:'image/jpeg'})).then(bitmap => {
+    if (bitmap.width !== simW || bitmap.height !== simH) {
+      applySimulationSize(bitmap.width, bitmap.height);
+    } else {
+      syncCanvasBuffers();
+    }
+    simCtx.drawImage(bitmap, 0, 0);
+    bitmap.close();
+    placeholder.classList.add('hidden');
+    _decoding = false;
+    if (_pendingBuf) { const b = _pendingBuf; _pendingBuf = null; onBinaryFrame(b); }
+  }).catch(() => { _decoding = false; });
+}
+
+// ── Slider ───────────────────────────────────────────────────────────────────
+const slider   = document.getElementById('speed-slider');
+const speedVal = document.getElementById('speed-val');
+let MIN=0.01, MAX=2.0;
+let sliderTimeout = null;
+
+function updateSliderUI() {
+  const v   = parseFloat(slider.value);
+  const pct = Math.min(100, Math.max(0, (v-MIN)/(MAX-MIN)*100));
+  slider.style.setProperty('--pct', pct+'%');
+  speedVal.textContent = v.toFixed(2);
+}
+
+function setSliderFromBackend(value) {
+  const next = Number(value);
+  if (!Number.isFinite(next)) return;
+  slider.value = Math.min(MAX, Math.max(MIN, next)).toFixed(3);
+  updateSliderUI();
+}
+slider.addEventListener('input', () => {
+  updateSliderUI();
+  clearTimeout(sliderTimeout);
+  sliderTimeout = setTimeout(() => {
+    const speed = parseFloat(slider.value);
+    sendCommand('set_speed', speed);
+    showToast('Inlet Speed: ' + speed.toFixed(2) + ' m/s');
+  }, 120);
+});
+updateSliderUI();
+
+// ── WebSocket ────────────────────────────────────────────────────────────────
+const WS_URL = 'ws://localhost:8765';
+let ws = null, wsReady = false;
+
+function connectWS() {
+  const dot   = document.getElementById('ws-dot');
+  const label = document.getElementById('ws-label');
+  dot.className   = 'ws-dot connecting';
+  label.textContent = 'Connecting';
+
+  ws = new WebSocket(WS_URL);
+  ws.binaryType = 'arraybuffer';
+
+  ws.onopen = () => {
+    wsReady = true;
+    dot.className     = 'ws-dot connected';
+    label.textContent = 'Connected';
+    showToast('Connected to simulation');
+  };
+
+  ws.onmessage = e => {
+    if (e.data instanceof ArrayBuffer) {
+      onBinaryFrame(e.data);
+    } else if (typeof e.data === 'string') {
+      const msg = JSON.parse(e.data);
+      // Reynolds number update from server
+      if (msg.type === 'reynolds') {
+        const re = msg.value;
+        document.getElementById('re-value').textContent =
+          re >= 10000 ? (re/1000).toFixed(1)+'k' : Math.round(re).toLocaleString();
+        const badge = document.getElementById('re-badge');
+        // colour-code by regime
+        if (re < 2300)       badge.style.borderColor = 'rgba(52,211,153,0.4)';   // laminar  → green
+        else if (re < 4000)  badge.style.borderColor = 'rgba(251,191,36,0.4)';   // transitional → yellow
+        else                 badge.style.borderColor = 'rgba(248,113,113,0.4)';  // turbulent → red
+      }
+      if (msg.type === 'arrows') {
+        drawArrows(msg.data || []);
+      }
+      if (msg.type === 'init') {
+        applySimulationSize(msg.width, msg.height);
+        console.log('[WS] init', msg);
+      }
+      if (msg.type === 'state') {
+        applyBackendState(msg);
+      }
+      if (msg.type === 'longpress') {
+        handleLongpressMessage(msg);
+      }
+    }
+  };
+
+  ws.onclose = () => {
+    wsReady = false;
+    dot.className     = 'ws-dot disconnected';
+    label.textContent = 'Disconnected — retrying';
+    placeholder.classList.remove('hidden');
+    drawArrows([]);
+    setTimeout(connectWS, 3000);
+  };
+  ws.onerror = () => { wsReady = false; dot.className='ws-dot disconnected'; };
+}
+
+function sendCommand(action, value) {
+  if (ws && wsReady) ws.send(JSON.stringify({action, value}));
+  else showToast('Not connected');
+}
+
+// ── Menu definitions ─────────────────────────────────────────────────────────
+const MAT_NAMES = ['air','water','honey'];
+const VIZ_NAMES = ['Smoke','Velocity','Vortex','Pressure'];
+
+const ICON_MAP = {
+  // 材质
+  'air':      './icons/Material/air.png',
+  'water':    './icons/Material/water.png',
+  'honey':    './icons/Material/honey.png',
+  // 可视化模式
+  'Smoke':    './icons/Visualization/smoke.png',
+  'Velocity': './icons/Visualization/velocity.png',
+  'Vortex':   './icons/Visualization/vortex.png',
+  'Pressure': './icons/Visualization/pressure.png',
+};
+const iconSrc = k => ICON_MAP[k] ?? `https://api.dicebear.com/9.x/shapes/svg?seed=${encodeURIComponent(k)}&backgroundColor=transparent`;
+
+const menus = [
+  { type:'radial',  id:'material',   name:'Material',    params:MAT_NAMES,  selectedParam:'air', wsAction:'set_material' },
+  { type:'radial',  id:'viz',        name:'Visualize',   params:VIZ_NAMES,  selectedParam:'Smoke', wsAction:'set_viz'      },
+  { type:'toggle',  id:'streamline', name:'Streamline',                                             wsAction:'toggle_streamline', isOn:false },
+  { type:'toggle',  id:'karman',     name:'Kármán',                                                 wsAction:'toggle_karman',     isOn:true  },
+  { type:'button',  id:'reset',      name:'Reset',                                                  wsAction:'reset'              },
+];
+menus.forEach(m => { if(m.type==='radial') m.selectedParam = m.selectedParam ?? m.params[0]; });
+
+function menuById(id) {
+  return menus.find(menu => menu.id === id);
+}
+
+function formatMaterialName(name) {
+  if (!name) return 'Air';
+  return name.charAt(0).toUpperCase() + name.slice(1);
+}
+
+function applyBackendState(state) {
+  if (Number.isFinite(Number(state.wind_speed_min_mps))) {
+    MIN = Number(state.wind_speed_min_mps);
+    slider.min = String(MIN);
+  }
+  if (Number.isFinite(Number(state.wind_speed_max_mps))) {
+    MAX = Number(state.wind_speed_max_mps);
+    slider.max = String(MAX);
+  }
+  if (Number.isFinite(Number(state.wind_speed_step_mps))) {
+    slider.step = String(Number(state.wind_speed_step_mps));
+  }
+
+  const materialMenu = menuById('material');
+  if (materialMenu && MAT_NAMES.includes(state.material)) {
+    materialMenu.selectedParam = state.material;
+    document.getElementById('material-badge').textContent = formatMaterialName(state.material);
+  }
+
+  if (state.speed_mps !== undefined) {
+    setSliderFromBackend(state.speed_mps);
+  }
+
+  const vizName = typeof state.viz === 'string'
+    ? state.viz.charAt(0).toUpperCase() + state.viz.slice(1).toLowerCase()
+    : '';
+  const vizMenu = menuById('viz');
+  if (vizMenu && VIZ_NAMES.includes(vizName)) {
+    vizMenu.selectedParam = vizName;
+  }
+
+  const streamlineMenu = menuById('streamline');
+  if (streamlineMenu && state.streamline !== undefined) {
+    streamlineMenu.isOn = Boolean(state.streamline);
+  }
+
+  const karmanMenu = menuById('karman');
+  if (karmanMenu && state.karman !== undefined) {
+    karmanMenu.isOn = Boolean(state.karman);
+  }
+
+  updateDOM();
+}
+
+// ── DOM construction ──────────────────────────────────────────────────────────
+let currentState = 'IDLE', activeMenuIndex = -1;
+const app          = document.getElementById('app');
+const radialRadius = 130, spacing = 175;
+
+const mainBase = 'relative flex items-center justify-center w-20 h-20 rounded-full cursor-pointer backdrop-blur-md transition-all duration-500 ease-out z-20 group';
+const subBase  = 'sub-node absolute top-1/2 left-1/2 flex items-center justify-center w-16 h-16 rounded-full cursor-pointer bg-gradient-to-br from-white/70 to-white/10 backdrop-blur-md border border-white/40 shadow-[inset_2px_2px_4px_rgba(255,255,255,0.8),0_8px_20px_rgba(0,0,0,0.06)] hover:from-white/90 hover:shadow-[0_12px_24px_rgba(0,0,0,0.12)] transition-all duration-300 z-10 group';
+
+menus.forEach((menu, i) => {
+  const group = document.createElement('div');
+  group.className = 'absolute top-[72px] left-1/2 spring-transition';
+  group.id = `group-${i}`;
+
+  const mainCircle = document.createElement('div');
+  mainCircle.id        = `main-${i}`;
+  mainCircle.className = mainBase;
+
+  if (menu.type !== 'button') {
+    const img = document.createElement('img');
+    img.id        = `main-img-${i}`;
+    const toggleIconMap = {
+      'streamline': './icons/Visualization/streamline.png',
+      'karman':     './icons/Visualization/karman.png',
+    };
+    img.src = menu.type==='radial'
+            ? iconSrc(menu.selectedParam)
+            : (toggleIconMap[menu.id] ?? `https://api.dicebear.com/9.x/shapes/svg?
+    seed=${menu.id}&backgroundColor=transparent`);
+    img.className = 'w-[100%] h-[100%] object-contain drop-shadow-[0_6px_6px_rgba(0,0,0,0.15)] group-hover:scale-110 transition-transform duration-300';
+    img.draggable = false;
+    mainCircle.appendChild(img);
+  } else {
+    const ico = document.createElement('img');
+    ico.src = './icons/Visualization/reset.png';
+    ico.style.cssText = 'width:100%;height:100%;object-fit:contain;';
+    ico.draggable = false;
+    mainCircle.appendChild(ico);
+  }
+
+  // Label (appears below button when focused)
+  const labelBox = document.createElement('div');
+  labelBox.id        = `label-${i}`;
+  labelBox.className = 'absolute top-[calc(100%+14px)] left-1/2 -translate-x-1/2 px-4 py-1.5 backdrop-blur-md border text-slate-700 font-medium text-sm tracking-widest rounded-full whitespace-nowrap fade-transition opacity-0 pointer-events-none z-30 shadow-[0_4px_16px_rgba(0,0,0,0.06)]';
+  labelBox.style.cssText = 'background:rgba(255,255,255,0.8);border-color:rgba(255,255,255,0.6);';
+  labelBox.textContent = menu.name;
+  mainCircle.appendChild(labelBox);
+
+  // Sub-label
+  if (menu.type !== 'button') {
+    const selLabel = document.createElement('div');
+    selLabel.id        = `main-sel-label-${i}`;
+    selLabel.className = 'absolute top-[calc(100%+8px)] left-1/2 -translate-x-1/2 text-[10px] whitespace-nowrap transition-all duration-300 font-semibold tracking-wider pointer-events-none [text-shadow:0_1px_2px_rgba(255,255,255,0.95)]';
+    selLabel.style.color = '#334155';
+    selLabel.textContent = menu.type==='radial' ? menu.selectedParam : (menu.isOn?'ON':'OFF');
+    mainCircle.appendChild(selLabel);
+  }
+
+  mainCircle.addEventListener('click', e => { e.stopPropagation(); handleMainClick(i); });
+  group.appendChild(mainCircle);
+
+  // Sub-nodes for radial menus
+  if (menu.type === 'radial') {
+    const subCont = document.createElement('div');
+    subCont.className = 'absolute inset-0 z-10 pointer-events-none';
+    const N = menu.params.length;
+
+    menu.params.forEach((param, pi) => {
+      const sub = document.createElement('div');
+      sub.className = subBase + ` sub-${i}`;
+
+      const img = document.createElement('img');
+      img.src       = iconSrc(param);
+      img.className = 'w-[100%] h-[100%] object-contain drop-shadow-[0_4px_4px_rgba(0,0,0,0.15)] group-hover:scale-110 transition-transform duration-300';
+      img.draggable = false;
+      sub.appendChild(img);
+
+      const subLabel = document.createElement('div');
+      subLabel.className = 'absolute top-1/2 left-1/2 text-[10px] whitespace-nowrap transition-colors duration-300 font-semibold tracking-wider pointer-events-none [text-shadow:0_1px_2px_rgba(255,255,255,0.95)]';
+      subLabel.style.color = '#334155';
+      subLabel.textContent = param;
+
+      // Fan downward: 140° centred at 90° (pointing down)
+      const totalSpread = Math.min(140, 24*N);
+      const startAngle  = 90 - totalSpread/2;
+      const angle = N===1 ? 90 : startAngle + (totalSpread/(N-1))*pi;
+      const rad = angle * Math.PI/180;
+      const sx = radialRadius*Math.cos(rad), sy = radialRadius*Math.sin(rad);
+      const lx = Math.cos(rad)*44,           ly = Math.sin(rad)*44;
+      const tx = -50+Math.cos(rad)*50,        ty = -50+Math.sin(rad)*50;
+      subLabel.style.transform = `translate(calc(${tx}% + ${lx}px), calc(${ty}% + ${ly}px))`;
+      sub.appendChild(subLabel);
+
+      sub.style.setProperty('--sx', sx+'px');
+      sub.style.setProperty('--sy', sy+'px');
+      sub.style.transitionDelay = pi*0.03+'s';
+      sub.addEventListener('click', e => { e.stopPropagation(); handleSubClick(i, pi, param); });
+      subCont.appendChild(sub);
+    });
+    group.appendChild(subCont);
+  }
+
+  app.appendChild(group);
+});
+
+document.body.addEventListener('click', () => {
+  if (currentState!=='IDLE') { currentState='IDLE'; activeMenuIndex=-1; updateDOM(); }
+});
+
+// ── Interaction handlers ──────────────────────────────────────────────────────
+function handleMainClick(index) {
+  const menu = menus[index];
+  if (menu.type==='button') {
+    sendCommand(menu.wsAction, null);
+    showToast('Simulation reset');
+    return;
+  }
+  if      (currentState==='IDLE')     { currentState='FOCUSED'; activeMenuIndex=index; }
+  else if (currentState==='FOCUSED')  {
+    if (index===activeMenuIndex) {
+      if (menu.type==='radial') { currentState='EXPANDED'; }
+      else {
+        menu.isOn = !menu.isOn;
+        sendCommand(menu.wsAction, menu.isOn);
+        showToast(menu.name+': '+(menu.isOn?'ON':'OFF'));
+      }
+    } else { activeMenuIndex=index; }
+  }
+  else if (currentState==='EXPANDED') {
+    if (index===activeMenuIndex) { currentState='IDLE'; activeMenuIndex=-1; }
+    else { currentState='FOCUSED'; activeMenuIndex=index; }
+  }
+  updateDOM();
+}
+
+function handleSubClick(menuIndex, paramIndex, paramName) {
+  const menu = menus[menuIndex];
+  menu.selectedParam = paramName;
+
+  if (menu.id==='material') {
+    sendCommand('set_material', paramName);
+    document.getElementById('material-badge').textContent =
+      paramName.charAt(0).toUpperCase()+paramName.slice(1);
+    showToast('Material: '+paramName);
+  } else if (menu.id==='viz') {
+    sendCommand('set_viz', paramName.toLowerCase());
+    showToast('Visualize: '+paramName);
+  } else {
+    sendCommand(menu.wsAction, paramName);
+    showToast(menu.name+': '+paramName);
+  }
+
+  currentState='IDLE'; activeMenuIndex=-1;
+  updateDOM();
+}
+
+// ── DOM update ────────────────────────────────────────────────────────────────
+function updateDOM() {
+  const N = menus.length;
+  menus.forEach((menu, i) => {
+    const group      = document.getElementById(`group-${i}`);
+    const mainCircle = document.getElementById(`main-${i}`);
+    const mainImg    = document.getElementById(`main-img-${i}`);
+    const selLabel   = document.getElementById(`main-sel-label-${i}`);
+    const label      = document.getElementById(`label-${i}`);
+    const subNodes   = document.querySelectorAll(`.sub-${i}`);
+
+    let xOffset=0, scale=1, opacity=0.6, isLabelVisible=false, zIndex=10, subScale=0;
+    const responsiveSpacing = Math.min(spacing, Math.max(88, (window.innerWidth-120)/Math.max(1,N-1)));
+    const defaultX = (i-(N-1)/2)*responsiveSpacing;
+
+    // Light frosted-glass rings (cyan accent) — unified with heat / magnetic scenes
+    const defaultRing = 'bg-gradient-to-br from-white/40 to-white/10 border border-white/30 shadow-[inset_2px_2px_6px_rgba(255,255,255,0.6),0_8px_24px_rgba(0,0,0,0.05)]';
+    // 统一为灰色底：ON 状态不再使用蓝色描边/阴影，仅比默认略微提亮
+    const onRing      = 'bg-gradient-to-br from-white/55 to-white/15 border border-white/40 shadow-[inset_2px_2px_6px_rgba(255,255,255,0.7),0_8px_24px_rgba(0,0,0,0.06)]';
+    const focusRing   = 'bg-gradient-to-br from-white/90 to-white/50 border border-white/80 shadow-[inset_2px_2px_10px_rgba(255,255,255,1),0_12px_32px_rgba(0,0,0,0.12)]';
+    const onFocusRing = 'bg-gradient-to-br from-white/90 to-white/50 border border-white/80 shadow-[inset_2px_2px_10px_rgba(255,255,255,1),0_12px_32px_rgba(0,0,0,0.12)]';
+    const expandRing  = 'bg-white border border-white shadow-[inset_2px_2px_12px_rgba(255,255,255,1),0_16px_40px_rgba(0,0,0,0.15)]';
+
+    let ringClass = menu.type==='toggle'&&menu.isOn ? onRing : defaultRing;
+
+    // Update image / sel-label
+    if (menu.type==='radial'&&mainImg) {
+      mainImg.src = iconSrc(menu.selectedParam);
+      if(selLabel) { selLabel.textContent=menu.selectedParam; selLabel.style.color='#334155'; selLabel.style.fontWeight='600'; }
+    } else if (menu.type==='toggle'&&selLabel) {
+      selLabel.textContent = menu.isOn?'ON':'OFF';
+      selLabel.style.color = menu.isOn?'#0e7490':'#334155';
+      selLabel.style.fontWeight = menu.isOn?'700':'600';
+    }
+
+    if (currentState==='IDLE') {
+      xOffset = defaultX;
+      opacity = menu.type==='toggle'&&menu.isOn ? 0.9 : 0.65;
+    } else if (currentState==='FOCUSED') {
+      xOffset = defaultX;
+      if (i===activeMenuIndex) {
+        opacity=1; scale=1.15; isLabelVisible=true; zIndex=50;
+        ringClass = (menu.type==='toggle'&&menu.isOn) ? onFocusRing : focusRing;
+      } else {
+        opacity = menu.type==='toggle'&&menu.isOn ? 0.7 : 0.3;
+      }
+    } else if (currentState==='EXPANDED') {
+      xOffset = defaultX;
+      if (i===activeMenuIndex&&menu.type==='radial') {
+        opacity=1; scale=1.1; subScale=1; zIndex=50; ringClass=expandRing;
+      } else {
+        opacity = 0; scale = 0.82;
+      }
+    }
+
+    group.style.transform   = `translate(calc(-50% + ${xOffset}px), 0%) scale(${scale})`;
+    group.style.opacity     = opacity;
+    group.style.zIndex      = zIndex;
+    group.style.pointerEvents = opacity<0.1?'none':'auto';
+    mainCircle.className    = mainBase+' '+ringClass;
+
+    if(isLabelVisible) { label?.classList.remove('opacity-0','translate-y-2'); label?.classList.add('opacity-100','translate-y-0'); }
+    else               { label?.classList.add('opacity-0','translate-y-2');    label?.classList.remove('opacity-100','translate-y-0'); }
+
+    // 聚焦某个按钮时其名称胶囊会显示在下方，此时隐藏值标签以避免重叠
+    if(selLabel) selLabel.style.opacity = (i===activeMenuIndex && currentState!=='IDLE') ? '0' : '1';
+
+    subNodes.forEach(sub => {
+      sub.style.setProperty('--scale', subScale);
+      sub.style.opacity      = subScale===1?1:0;
+      sub.style.pointerEvents = subScale===1?'auto':'none';
+    });
+  });
+}
+
+// ── Toast ─────────────────────────────────────────────────────────────────────
+let toastTimeout;
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.remove('opacity-0','translate-y-4');
+  t.classList.add('opacity-100','translate-y-0');
+  clearTimeout(toastTimeout);
+  toastTimeout = setTimeout(()=>{
+    t.classList.remove('opacity-100','translate-y-0');
+    t.classList.add('opacity-0','translate-y-4');
+  }, 2500);
+}
+
+document.getElementById('material-badge').textContent = 'Air';
+updateDOM();
+window.addEventListener('resize', updateDOM);
+connectWS();
+</script>
+</body>
+</html>
